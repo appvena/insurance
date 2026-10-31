@@ -6,7 +6,6 @@
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "display_override": ["standalone", "minimal-ui"],
   "orientation": "any",
   "background_color": "#f3f5fa",
   "theme_color": "#0b2a5b",
@@ -19,6 +18,6 @@
   ],
   "shortcuts": [
     { "name": "Hitung Cepat", "url": "./?tab=quick", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
-    { "name": "Penawaran Baru", "url": "./?tab=calc", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
+    { "name": "Penawaran", "url": "./?tab=calc", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
   ]
 }
