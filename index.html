@@ -238,6 +238,11 @@
 
     <div data-pane="ext" hidden>
       <div class="card"><h2>Rate Perluasan (× Harga Pertanggungan)</h2><div class="row" id="extRates"></div></div>
+      <div class="card"><h2>Perluasan Tambahan</h2>
+        <p class="hint" style="margin-top:-6px">Rumus sama dengan perluasan lain: Harga Pertanggungan × rate. Perluasan tambahan tidak ikut diskon dan tidak kena loading usia.</p>
+        <div id="cxList"></div>
+        <div class="btns"><button class="btn" id="btnAddCx" style="flex:0 1 auto">+ Tambah perluasan</button></div>
+      </div>
       <div class="card"><h2>Tanggung Jawab & Kecelakaan Diri (× Limit)</h2>
         <div class="row c3">
           <div class="f"><label>Rate TJH Pihak III (%)</label><input id="aTjhRate" type="number" step="0.01"></div>
@@ -370,7 +375,7 @@
 </section>
 </main>
 
-<footer><div id="ftContact"></div>Copyright © SRISP 2026 · v1.2</footer>
+<footer><div id="ftContact"></div>Copyright © SRISP 2026 · v1.3</footer>
 
 <div class="modal" id="iosModal" hidden>
   <div class="card">

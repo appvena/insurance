@@ -8,5 +8,5 @@ export const firebaseConfig = {
   appId: "1:377055168058:web:8218b1e9843cbb57c19703"
 };
 export const FB_VER = "10.12.2";
-export const APP_VERSION = "v1.2";
+export const APP_VERSION = "v1.3";
 export const COPYRIGHT = "Copyright © SRISP 2026";

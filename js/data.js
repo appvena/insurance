@@ -177,6 +177,7 @@ export const FUNC_COVERS = { PRIBADI: ["comprehensive", "tlo"], DINAS: ["compreh
   delete S.tiers;
   S.texts = { disclaimer: S.texts.disclaimer };
   S.contact = { name: "", wa: "" };
+  S.customExt = [];
   S.hero = {
     style: "pattern",
     title: "Perlindungan Menyeluruh untuk Kendaraan Anda",

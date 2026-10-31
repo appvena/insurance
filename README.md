@@ -1,6 +1,6 @@
-# Vehicle Protection — v1.2
+# Vehicle Protection — v1.3
 
-Copyright © SRISP 2026 · v1.2
+Copyright © SRISP 2026 · v1.3
 
 ## Isi zip
 ```
@@ -17,6 +17,13 @@ panduan/              ← JANGAN di-upload ke GitHub (supaya tidak bisa dibuka p
   README.md
   firestore.rules     tempel di Firebase Console → Firestore → Rules
 ```
+
+## Yang baru di v1.3
+- **Perluasan Tambahan** (Admin → Perluasan & Biaya → + Tambah perluasan): isi nama, rate (× Harga Pertanggungan), keterangan untuk halaman depan, klausula untuk PDF, centang fungsi yang berlaku (Pribadi / Dinas / Komersial), dan Aktif.
+  - Muncul sebagai pilihan centang di Hitung Cepat dan Penawaran, hanya untuk fungsi yang dicentang.
+  - Tidak ikut diskon dan tidak kena loading usia.
+  - Klausulanya tercetak di PDF hanya jika perluasan itu dipilih.
+  - Contoh: Baterai Kendaraan Hybrid / Listrik, rate 0,02%.
 
 ## Yang baru di v1.2
 - **Fungsi kendaraan** (Pribadi, Dinas, Komersial): tabel rate kasko sendiri per fungsi (Admin → Rate Kasko), teks risiko sendiri, klausula, dan subjectivity sendiri per fungsi (Admin → Teks Polis). Komersial hanya Comprehensive. Pilihan fungsi ada di Hitung Cepat dan Penawaran.
@@ -48,7 +55,7 @@ Firestore Database → Create database (lokasi `asia-southeast2 (Jakarta)`, mode
 Upload isi `upload-ke-github/` ke repository → Settings → Pages → Deploy from a branch → main / root → Save.
 
 ## Memperbarui di kemudian hari
-Setiap ada file yang diubah, naikkan `VERSION` di `sw.js` (mis. `ai-v1.2.0` → `ai-v1.2.1`) supaya aplikasi yang sudah terpasang mendapat versi baru.
+Setiap ada file yang diubah, naikkan `VERSION` di `sw.js` (mis. `ai-v1.3.0` → `ai-v1.3.1`) supaya aplikasi yang sudah terpasang mendapat versi baru.
 
 ## Catatan
 - Tulisan teknis sudah tidak tampil di halaman. Kode sumber (View Source) tetap bisa dibaca siapa pun, seperti semua situs web; keamanan data dijaga oleh Firestore Rules.

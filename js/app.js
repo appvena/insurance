@@ -1,4 +1,4 @@
-/* Vehicle Protection — v1.2 · Copyright © SRISP 2026 */
+/* Vehicle Protection — v1.3 · Copyright © SRISP 2026 */
 import { firebaseConfig, FB_VER, APP_VERSION, COPYRIGHT } from "./config.js";
 import { EXT_DEFS, COVER_LABEL, DEFAULT_SETTINGS, DEFAULT_VEHICLES, FUNCS, FUNC_COVERS } from "./data.js";
 
@@ -44,6 +44,9 @@ function normalizeSettings(raw) {
 let S = normalizeSettings(LS.get("ai_settings"));
 const funcLabel = k => (FUNCS.find(f => f.key === k) || { label: k || "-" }).label;
 const TX = k => S.textsByFunc[k] || S.textsByFunc.PRIBADI;
+/* Perluasan tambahan buatan admin: { id, label, rate, desc, clause, funcs: {PRIBADI,DINAS,KOMERSIAL}, active } */
+const CX = (func) => (S.customExt || []).filter(x => x.active !== false && x.label && (!func || (x.funcs || {})[func] !== false));
+const cxChosen = inp => CX(inp.func).filter(x => (inp.ext || {})["c_" + x.id]);
 let VEH = Array.isArray(LS.get("ai_vehicles")) ? LS.get("ai_vehicles") : clone(DEFAULT_VEHICLES);
 let fb = null, user = null, last = null, lastQuick = null;
 let currentId = null, currentRef = null, cloudHist = null;
@@ -82,6 +85,7 @@ function calculate(S, inp) {
   if (si > 0) {
     add(COVER_LABEL[cover], si, effRate, "casco");
     EXT_DEFS.forEach(e => { if (inp.ext[e.key]) add(e.label, si, +S.ext[e.key] || 0, "casco"); });
+    cxChosen(inp).forEach(x => add(x.label, si, +x.rate || 0, "extra"));
   }
   if (inp.tjh > 0) add("Tanggung Jawab Hukum Pihak III", inp.tjh, +S.tjhRate, "liab");
   if (inp.paD > 0) add("Kecelakaan Diri (PA) Pengemudi", inp.paD, +S.paDriverRate, "liab");
@@ -118,15 +122,26 @@ function renderYearSelect(sel) {
   const opts = []; for (let i = y + 1; i >= y - 25; i--) opts.push({ v: String(i), t: String(i) });
   fillSelect(sel, opts); if (!sel.dataset.init) { sel.value = String(y); sel.dataset.init = 1; }
 }
-function renderExt(container, idp) {
+function renderExt(container, idp, func = "PRIBADI") {
   const box = $(container);
-  const prev = Object.fromEntries(EXT_DEFS.map(e => [e.key, document.getElementById(idp + e.key)?.checked ?? false]));
-  box.innerHTML = EXT_DEFS.filter(e => D().ext[e.key] !== false).map(e => `
-    <label class="chk"><input type="checkbox" id="${idp}${e.key}" ${prev[e.key] ? "checked" : ""}>
-      <span class="t">${esc(e.label)}</span><span class="r">${pct(S.ext[e.key])}</span></label>`).join("")
+  const prev = {}; box.querySelectorAll("input[type=checkbox]").forEach(i => prev[i.id.slice(idp.length)] = i.checked);
+  const items = [...EXT_DEFS.filter(e => D().ext[e.key] !== false).map(e => ({ k: e.key, label: e.label, rate: S.ext[e.key] })),
+    ...CX(func).map(x => ({ k: "c_" + x.id, label: x.label, rate: x.rate }))];
+  box.innerHTML = items.map(e => `
+    <label class="chk"><input type="checkbox" id="${idp}${esc(e.k)}" ${prev[e.k] ? "checked" : ""}>
+      <span class="t">${esc(e.label)}</span><span class="r">${pct(e.rate)}</span></label>`).join("")
     || `<p class="hint">Tidak ada perluasan yang ditampilkan.</p>`;
 }
-function readExt(idp) { return Object.fromEntries(EXT_DEFS.map(e => [e.key, D().ext[e.key] !== false && !!document.getElementById(idp + e.key)?.checked])); }
+function readExt(idp) {
+  const box = idp === "ext_" ? $("#extList") : $("#qExtList"), out = {};
+  EXT_DEFS.forEach(e => out[e.key] = false);
+  box.querySelectorAll("input[type=checkbox]").forEach(i => { const k = i.id.slice(idp.length); if (EXT_DEFS.some(e => e.key === k) ? D().ext[k] !== false : true) out[k] = i.checked; });
+  return out;
+}
+function setExtChecks(idp, ext) {
+  const box = idp === "ext_" ? $("#extList") : $("#qExtList");
+  box.querySelectorAll("input[type=checkbox]").forEach(i => i.checked = !!(ext || {})[i.id.slice(idp.length)]);
+}
 function renderLimitSelects(ids) {
   const mk = arr => [{ v: "0", t: "Tidak diambil" }, ...arr.map(n => ({ v: String(n), t: rp(n) }))];
   fillSelect($(ids.tjh), mk(S.tjhLimits)); fillSelect($(ids.paD), mk(S.paLimits)); fillSelect($(ids.paP), mk(S.paLimits));
@@ -183,7 +198,7 @@ function setQuick(q) {
   setSel($("#qCover"), q.cover); setSel($("#qYear"), q.year);
   $("#qPrice").value = q.price ? fmt(q.price) : ""; $("#qAcc").value = q.acc ? fmt(q.acc) : "";
   $("#qSeats").value = q.seats || 7;
-  EXT_DEFS.forEach(e => { const el = document.getElementById("qext_" + e.key); if (el) el.checked = !!(q.ext || {})[e.key]; });
+  renderExt("#qExtList", "qext_", $("#qFunc").value); setExtChecks("qext_", q.ext);
   setSel($("#qTjh"), q.tjh || 0); setSel($("#qPaD"), q.paD || 0); setSel($("#qPaP"), q.paP || 0);
   $("#qDisc").value = q.disc || 0; recalcQuick();
 }
@@ -258,7 +273,7 @@ function setInput(inp) {
   $("#fPrice").value = inp.price ? fmt(inp.price) : ""; $("#fPrice").dataset.auto = "0";
   $("#fAcc").value = inp.acc ? fmt(inp.acc) : ""; set("#fAccNote", inp.accNote);
   if (inp.start) set("#fStart", inp.start); if (inp.end) set("#fEnd", inp.end);
-  EXT_DEFS.forEach(e => { const el = document.getElementById("ext_" + e.key); if (el) el.checked = !!(inp.ext || {})[e.key]; });
+  renderExt("#extList", "ext_", $("#fFunc").value); setExtChecks("ext_", inp.ext);
   setSel($("#fTjh"), inp.tjh || 0); setSel($("#fPaD"), inp.paD || 0); setSel($("#fPaP"), inp.paP || 0);
   $("#fDisc").value = inp.disc || 0;
   recalc();
@@ -309,7 +324,7 @@ function applySettingsToUI() {
   $$(".discMax").forEach(e => e.textContent = S.maxDiscount);
   $("#qSeatsWrap").hidden = !(S.paPassPerSeat && D().paP);
   renderCoverSelect($("#fCover"), $("#fFunc").value); renderCoverSelect($("#qCover"), $("#qFunc").value);
-  renderExt("#extList", "ext_"); renderExt("#qExtList", "qext_");
+  renderExt("#extList", "ext_", $("#fFunc").value); renderExt("#qExtList", "qext_", $("#qFunc").value);
   renderLimitSelects({ tjh: "#fTjh", paD: "#fPaD", paP: "#fPaP" });
   renderLimitSelects({ tjh: "#qTjh", paD: "#qPaD", paP: "#qPaP" });
   $$("[data-liab]").forEach(el => el.hidden = !D()[el.dataset.liab]);
@@ -404,6 +419,7 @@ function renderHome() {
     workshop: ["tool", "Bengkel Resmi", "Perbaikan kendaraan di bengkel resmi sesuai merek kendaraan."]
   };
   const extCards = EXT_DEFS.filter(e => D().ext[e.key] !== false).map(e => ext[e.key]);
+  CX().forEach(x => extCards.push(["shield", x.label, x.desc || ""]));
   if (D().tjh) extCards.push(["users", "Tanggung Jawab Pihak Ketiga", "Ganti rugi kepada orang lain yang dirugikan akibat kendaraan Anda."]);
   if (D().paD || D().paP) extCards.push(["heart", "Kecelakaan Diri", "Santunan bagi pengemudi dan penumpang yang cedera atau meninggal akibat kecelakaan."]);
   const card = ([i, t, d]) => `<div class="feat">${ico(i)}<b>${esc(t)}</b><p>${esc(d)}</p></div>`;
@@ -711,7 +727,7 @@ function buildPdf(ref) {
     row("MASA BERLAKU", `Penawaran berlaku ${S.validityDays} hari sejak tanggal penawaran`)
   ], y);
   y = section("KLAUSULA & WARRANTY", next(2));
-  kv(lines(TX(inp.func).clauses).map((t, i) => ["", `${i + 1}.`, t]), y);
+  kv([...lines(TX(inp.func).clauses), ...cxChosen(inp).map(x => (x.clause || "").trim()).filter(Boolean)].map((t, i) => ["", `${i + 1}.`, t]), y);
   y = section("SUBJECTIVITY", next(2));
   kv(lines(TX(inp.func).subjectivity).map(t => ["", "-", t]), y);
   y = section("DISCLAIMER", next(2));
@@ -837,11 +853,36 @@ function renderTextFunc() {
   $("#btnCopyText").hidden = textFunc === "PRIBADI";
   const t = TX(textFunc); $("#aDeduct").value = t.deductible; $("#aClauses").value = t.clauses; $("#aSubj").value = t.subjectivity;
 }
+function renderCx() {
+  const list = S.customExt || [];
+  $("#cxList").innerHTML = list.map((x, i) => `<div class="cx" data-cx="${i}">
+    <div class="row">
+      <div class="f"><label>Nama perluasan *</label><input data-cf="label" value="${esc(x.label)}" placeholder="cth. Baterai Kendaraan Hybrid / Listrik"></div>
+      <div class="f"><label>Rate (%) × Harga Pertanggungan</label><input data-cf="rate" type="number" step="0.001" min="0" value="${esc(x.rate)}"></div>
+      <div class="f full"><label>Keterangan di halaman depan</label><input data-cf="desc" value="${esc(x.desc || "")}" placeholder="cth. Menjamin kerusakan baterai kendaraan hybrid dan listrik."></div>
+      <div class="f full"><label>Klausula di PDF (tercetak jika perluasan dipilih)</label><input data-cf="clause" value="${esc(x.clause || "")}" placeholder="cth. Klausul Baterai Kendaraan Listrik"></div>
+      <div class="f full"><label>Berlaku untuk</label><div class="cx-funcs">
+        ${FUNCS.map(f => `<label class="chk"><input type="checkbox" data-cfunc="${f.key}" ${(x.funcs || {})[f.key] !== false ? "checked" : ""}><span class="t">${f.label}</span></label>`).join("")}
+        <label class="chk"><input type="checkbox" data-cf="active" ${x.active !== false ? "checked" : ""}><span class="t"><b>Aktif</b></span></label>
+      </div></div>
+    </div>
+    <div class="btns"><button class="btn sm danger" data-cxdel="${i}" style="flex:0 1 auto">Hapus perluasan</button></div></div>`).join("")
+    || `<p class="hint">Belum ada perluasan tambahan.</p>`;
+}
+function readCx() {
+  S.customExt = $$("#cxList [data-cx]").map(box => {
+    const old = (S.customExt || [])[+box.dataset.cx] || {};
+    const val = k => box.querySelector(`[data-cf="${k}"]`);
+    const funcs = {}; FUNCS.forEach(f => funcs[f.key] = box.querySelector(`[data-cfunc="${f.key}"]`).checked);
+    return { id: old.id || Math.random().toString(36).slice(2, 9), label: val("label").value.trim(), rate: +val("rate").value || 0,
+      desc: val("desc").value.trim(), clause: val("clause").value.trim(), funcs, active: val("active").checked };
+  });
+}
 function renderHeroAdmin() {
   $("#hPrevWrap").hidden = !HERO_IMG; if (HERO_IMG) $("#hPreview").src = HERO_IMG;
 }
 function fillAdmin() {
-  renderRateFunc(); renderTextFunc();
+  renderRateFunc(); renderTextFunc(); renderCx();
   $("#aAgeOn").value = S.ageLoading.enabled ? "1" : "0"; $("#aAgeAfter").value = S.ageLoading.afterYears; $("#aAgePct").value = S.ageLoading.pctPerYear;
   $("#extRates").innerHTML = EXT_DEFS.map(e => `<div class="f"><label>${esc(e.label)} (%)</label><input type="number" step="0.001" min="0" data-ext="${e.key}" value="${S.ext[e.key]}"></div>`).join("");
   $("#aTjhRate").value = S.tjhRate; $("#aPaDRate").value = S.paDriverRate; $("#aPaPRate").value = S.paPassRate;
@@ -888,6 +929,8 @@ function collectAdmin() {
   S.region = $("#aRegion").value.trim() || "Wilayah 1"; S.validityDays = +$("#aValid").value || 14; S.paymentTerm = $("#aPayTerm").value.trim();
   $$("[data-disp]").forEach(i => S.display[i.dataset.disp] = i.checked);
   $$("[data-dispext]").forEach(i => S.display.ext[i.dataset.dispext] = i.checked);
+  readCx();
+  S.customExt.forEach((x, i) => { if (!x.label) throw new Error(`Perluasan tambahan nomor ${i + 1}: nama belum diisi.`); });
   readTexts(); S.texts = { disclaimer: $("#aDisc").value.trim() };
   S.contact = { name: $("#kName").value.trim(), wa: $("#kWa").value.trim() };
   S.hero = { style: $("#hStyle").value, title: $("#hTitle").value.trim() || DEFAULT_SETTINGS.hero.title, subtitle: $("#hSub").value.trim() || DEFAULT_SETTINGS.hero.subtitle };
@@ -1025,7 +1068,7 @@ function bind() {
     setSel($("#fFunc"), q.func); renderCoverSelect($("#fCover"), $("#fFunc").value); setSel($("#fCover"), q.cover); setSel($("#fYear"), q.year);
     $("#fPrice").value = q.price ? fmt(q.price) : ""; $("#fAcc").value = q.acc ? fmt(q.acc) : "";
     if (S.paPassPerSeat) $("#fSeats").value = q.seats || 7;
-    EXT_DEFS.forEach(e => { const el = document.getElementById("ext_" + e.key); if (el) el.checked = q.ext[e.key]; });
+    renderExt("#extList", "ext_", $("#fFunc").value); setExtChecks("ext_", q.ext);
     setSel($("#fTjh"), q.tjh); setSel($("#fPaD"), q.paD); setSel($("#fPaP"), q.paP); $("#fDisc").value = q.disc;
     recalc(); toast("Lengkapi data tertanggung dan kendaraan.");
   });
@@ -1116,8 +1159,11 @@ function bind() {
 }
 
 function bindV12() {
-  [["#fFunc", "#fCover", () => recalc()], ["#qFunc", "#qCover", () => recalcQuick()]].forEach(([fs, cs, fn]) =>
-    $(fs).addEventListener("change", () => { if (renderCoverSelect($(cs), $(fs).value)) toast("TLO tidak tersedia untuk kendaraan komersial. Jaminan diganti ke Comprehensive."); fn(); }));
+  [["#fFunc", "#fCover", "#extList", "ext_", () => recalc()], ["#qFunc", "#qCover", "#qExtList", "qext_", () => recalcQuick()]].forEach(([fs, cs, el, idp, fn]) =>
+    $(fs).addEventListener("change", () => {
+      if (renderCoverSelect($(cs), $(fs).value)) toast("TLO tidak tersedia untuk kendaraan komersial. Jaminan diganti ke Comprehensive.");
+      renderExt(el, idp, $(fs).value); fn();
+    }));
   document.addEventListener("submit", e => { const f = e.target.closest("form[data-ask]"); if (f) { e.preventDefault(); sendQuestion(f); } });
   document.addEventListener("click", async e => {
     const sc = e.target.closest("[data-scroll]"); if (sc) { const t = $(sc.dataset.scroll); t && t.scrollIntoView({ behavior: "smooth", block: "start" }); }
@@ -1132,6 +1178,15 @@ function bindV12() {
     const rp_ = e.target.closest("[data-reply]"); if (rp_) setInboxStatus(rp_.dataset.reply, "dibalas");
     const mk = e.target.closest("[data-mark]"); if (mk) { const x = INBOX.find(i => i.id === mk.dataset.mark); if (x) setInboxStatus(x.id, x.status === "dibalas" ? "baru" : "dibalas"); }
     const dl = e.target.closest("[data-idel]"); if (dl && confirm("Hapus pesan ini?")) { try { await fb.F.deleteDoc(fb.F.doc(fb.db, "inbox", dl.dataset.idel)); } catch { toast("Gagal menghapus. Coba lagi.", "err"); } }
+  });
+  $("#btnAddCx").addEventListener("click", () => {
+    readCx(); S.customExt.push({ id: Math.random().toString(36).slice(2, 9), label: "", rate: 0, desc: "", clause: "", funcs: { PRIBADI: true, DINAS: true, KOMERSIAL: true }, active: true });
+    renderCx(); const last = $$("#cxList [data-cx]").pop(); last && last.querySelector('[data-cf="label"]').focus();
+  });
+  $("#cxList").addEventListener("click", e => {
+    const b = e.target.closest("[data-cxdel]"); if (!b) return;
+    readCx(); const x = S.customExt[+b.dataset.cxdel];
+    if (confirm(`Hapus perluasan "${x.label || "tanpa nama"}"?`)) { S.customExt.splice(+b.dataset.cxdel, 1); renderCx(); toast("Dihapus. Klik Simpan Pengaturan untuk menerapkan."); }
   });
   $("#inboxFilter").addEventListener("change", renderInbox);
   $("#inboxSearch").addEventListener("input", renderInbox);
