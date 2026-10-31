@@ -1,0 +1,28 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // GANTI "GANTI_DENGAN_UID_ADMIN" dengan UID akun admin
+    // (Firebase Console > Authentication > Users > kolom "User UID").
+    // UID tidak berubah walaupun email admin diganti.
+    function isAdmin() {
+      return request.auth != null
+        && (request.auth.uid == "GANTI_DENGAN_UID_ADMIN"
+            || request.auth.token.email == "alex@insurance.com");
+      // Setelah UID diisi, HAPUS baris email di atas agar aman
+      // ketika email admin nanti diganti.
+    }
+
+    // Pengaturan rate & daftar kendaraan: semua orang boleh membaca
+    // (agar kalkulator jalan), hanya admin yang boleh mengubah.
+    match /config/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Semua koleksi lain tertutup.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
