@@ -13,16 +13,31 @@ service cloud.firestore {
       // ketika email admin nanti diganti.
     }
 
-    // Pengaturan rate & daftar kendaraan: semua orang boleh membaca
-    // (agar kalkulator jalan), hanya admin yang boleh mengubah.
+    // Pengaturan rate, daftar kendaraan, dan foto header:
+    // semua orang boleh membaca, hanya admin yang boleh mengubah.
     match /config/{docId} {
       allow read: if true;
       allow write: if isAdmin();
     }
 
-    // Riwayat perhitungan yang disinkron ke cloud: hanya admin.
+    // Riwayat penawaran: hanya admin.
     match /quotes/{quoteId} {
       allow read, write: if isAdmin();
+    }
+
+    // Tanya Admin: pengunjung hanya boleh MENGIRIM pesan baru dengan isi yang valid.
+    // Membaca, membalas (ubah status), dan menghapus hanya admin.
+    match /inbox/{msgId} {
+      allow create: if request.resource.data.keys().hasOnly(['name', 'phone', 'message', 'status', 'createdAt'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 80
+        && request.resource.data.phone is string
+        && request.resource.data.phone.size() >= 9 && request.resource.data.phone.size() <= 20
+        && request.resource.data.message is string
+        && request.resource.data.message.size() >= 5 && request.resource.data.message.size() <= 1000
+        && request.resource.data.status == 'baru'
+        && request.resource.data.createdAt == request.time;
+      allow read, update, delete: if isAdmin();
     }
 
     // Semua koleksi lain tertutup.
