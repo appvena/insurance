@@ -1,4 +1,4 @@
-/* Vehicle Protection — v1.4 · Copyright © SRISP 2026 */
+/* Vehicle Protection — v1.5.1 · Copyright © SRISP 2026 */
 import { firebaseConfig, FB_VER, APP_VERSION, COPYRIGHT } from "./config.js";
 import { EXT_DEFS, COVER_LABEL, DEFAULT_SETTINGS, DEFAULT_VEHICLES, FUNCS, FUNC_COVERS } from "./data.js";
 
@@ -558,8 +558,10 @@ function quoteRef() {
 function ensureId() { if (!currentId) { currentId = newId(); currentRef = quoteRef(); } }
 function saveRecord(silent = false) {
   ensureId();
-  const rec = { id: currentId, ref: currentRef, savedAt: new Date().toISOString(), inp: clone(last.inp),
-    total: last.r.total, gross: last.r.gross, si: last.r.si, by: user?.email || "" };
+  const old = histItems().find(x => x.id === currentId) || {};
+  const now = new Date().toISOString();
+  const rec = { ...old, id: currentId, ref: currentRef, savedAt: old.savedAt || now, updatedAt: now, inp: clone(last.inp),
+    total: last.r.total, gross: last.r.gross, si: last.r.si, by: user?.email || old.by || "", status: old.status || "baru" };
   const arr = localHist().filter(x => x.id !== rec.id); arr.unshift(rec); setLocalHist(arr);
   if (cloudHist) { cloudHist = cloudHist.filter(x => x.id !== rec.id); cloudHist.unshift(rec); }
   if (fb && user) fb.F.setDoc(fb.F.doc(fb.db, "quotes", rec.id), rec).catch(() => {});
@@ -580,13 +582,17 @@ async function loadHistory() {
 }
 function histItems() {
   const map = new Map();
-  [...(cloudHist || []), ...localHist()].forEach(r => { const o = map.get(r.id); if (!o || o.savedAt < r.savedAt) map.set(r.id, r); });
-  return [...map.values()].sort((a, b) => b.savedAt.localeCompare(a.savedAt));
+  const ts = r => r.updatedAt || r.savedAt || "";
+  [...(cloudHist || []), ...localHist()].forEach(r => { const o = map.get(r.id); if (!o || ts(o) < ts(r)) map.set(r.id, r); });
+  return [...map.values()].sort((a, b) => (b.savedAt || "").localeCompare(a.savedAt || ""));
 }
 function renderHist() {
   const q = $("#hFilter").value.trim().toLowerCase();
   const all = histItems();
-  const rows = all.filter(r => !q || `${r.inp.name} ${r.inp.plate} ${r.ref} ${r.inp.brand} ${r.inp.model}`.toLowerCase().includes(q));
+  const fs = $("#hStatus").value;
+  const rows = all.filter(r => (!q || `${r.inp.name} ${r.inp.plate} ${r.ref} ${r.inp.brand} ${r.inp.model}`.toLowerCase().includes(q))
+    && (!fs || (fs === "exp" ? isExpired(r) : (r.status || "baru") === fs)));
+  renderRenew();
   $("#hCount").textContent = `${all.length} data`;
   $("#hSrc").textContent = cloudHist ? "Tersimpan dan tersinkron di semua perangkat Anda" : "Tersimpan di perangkat ini";
   $("#hList").innerHTML = rows.map(r => {
@@ -594,12 +600,67 @@ function renderHist() {
     const veh = `${r.inp.brand || ""} ${r.inp.model || ""}`.trim();
     return `<div class="hitem"><div class="hmain"><b>${esc(r.inp.name || "-")}</b>
       <div class="hint">${esc(veh || "-")} (${esc(r.inp.year)})${r.inp.plate ? " · " + esc(r.inp.plate) : ""}</div>
-      <div class="hint">${esc(r.ref)} · ${esc(d)}</div></div>
+      <div class="hint">${esc(r.ref)} · ${esc(d)}</div>
+      <div class="hstat">${stChip(r)}<select data-hst="${esc(r.id)}" aria-label="Ubah status">${ST_OPTS.map(o => `<option value="${o.v}" ${(r.status || "baru") === o.v ? "selected" : ""}>${o.t}</option>`).join("")}</select></div></div>
       <div class="hright"><b>${rp(r.total)}</b><div class="hact">
         <button class="btn sm" data-hopen="${esc(r.id)}">Buka</button>
         <button class="btn sm" data-hpdf="${esc(r.id)}">PDF</button>
         <button class="btn sm danger" data-hdel="${esc(r.id)}">Hapus</button></div></div></div>`;
   }).join("") || `<div class="empty">${all.length ? "Tidak ditemukan." : "Belum ada perhitungan tersimpan.<br>Simpan dari menu Penawaran."}</div>`;
+}
+/* ---- Status penawaran ---- */
+const ST_OPTS = [{ v: "baru", t: "Baru" }, { v: "dikirim", t: "Dikirim" }, { v: "deal", t: "Deal" }, { v: "batal", t: "Batal" }];
+const isExpired = r => ["baru", "dikirim"].includes(r.status || "baru") && (Date.now() - new Date(r.savedAt).getTime()) / 864e5 > (+S.validityDays || 14);
+function stChip(r) {
+  if (isExpired(r)) return `<span class="st st-exp">Kedaluwarsa</span>`;
+  const s = r.status || "baru"; return `<span class="st st-${s}">${(ST_OPTS.find(o => o.v === s) || ST_OPTS[0]).t}</span>`;
+}
+function updateRecord(id, patch) {
+  const r = histItems().find(x => x.id === id); if (!r) return null;
+  const rec = { ...r, ...patch, updatedAt: new Date().toISOString() };
+  const arr = localHist().filter(x => x.id !== id); arr.unshift(rec); setLocalHist(arr);
+  if (cloudHist) { cloudHist = cloudHist.filter(x => x.id !== id); cloudHist.unshift(rec); }
+  if (fb && user) fb.F.setDoc(fb.F.doc(fb.db, "quotes", id), rec).catch(() => {});
+  return rec;
+}
+/* ---- Pengingat perpanjangan: polis Deal yang akan/baru berakhir ---- */
+const daysTo = s => Math.round((new Date(s + "T00:00:00") - new Date(new Date().toDateString())) / 864e5);
+function renewItems() {
+  const win = +S.renewDays || 60;
+  return histItems().filter(r => r.status === "deal" && !r.renewed && r.inp && r.inp.end)
+    .map(r => ({ r, d: daysTo(r.inp.end) })).filter(x => x.d <= win && x.d >= -30).sort((a, b) => a.d - b.d);
+}
+function renewWaLink(r) {
+  const k = S.contact, veh = `${r.inp.brand || ""} ${r.inp.model || ""}`.trim();
+  const t = `Halo ${r.inp.name}, kami mengingatkan bahwa polis asuransi kendaraan ${veh}${r.inp.plate ? " (" + r.inp.plate + ")" : ""} akan berakhir pada ${dLong(r.inp.end)}.\n\nApakah ingin kami siapkan penawaran perpanjangan?${k.name ? "\n\nSalam,\n" + k.name : ""}`;
+  return `https://wa.me/${normPhone(r.inp.phone)}?text=${encodeURIComponent(t)}`;
+}
+function renderRenew() {
+  const items = renewItems();
+  const urgent = items.filter(x => x.d <= 30).length;
+  const b = $("#histBadge"); b.hidden = !urgent; b.textContent = urgent;
+  $("#renewCard").hidden = !items.length;
+  $("#renewCount").textContent = `${items.length} polis`;
+  $("#renewList").innerHTML = items.map(({ r, d }) => {
+    const veh = `${r.inp.brand || ""} ${r.inp.model || ""}`.trim();
+    const due = d < 0 ? `Lewat ${-d} hari` : d === 0 ? "Berakhir hari ini" : `${d} hari lagi`;
+    return `<div class="rn"><div class="hmain"><b>${esc(r.inp.name || "-")}</b>
+      <div class="hint">${esc(veh)}${r.inp.plate ? " · " + esc(r.inp.plate) : ""}</div>
+      <div class="due ${d <= 7 ? "late" : d <= 30 ? "soon" : ""}">${due} · ${esc(dLong(r.inp.end))}</div>
+      ${r.remindedAt ? `<div class="hint">Diingatkan ${esc(new Date(r.remindedAt).toLocaleDateString("id-ID", { day: "numeric", month: "short" }))}</div>` : ""}</div>
+      <div class="hright"><div class="hact" style="flex-direction:column;align-items:stretch">
+        ${r.inp.phone ? `<a class="btn sm wa" href="${renewWaLink(r)}" target="_blank" rel="noopener" data-remind="${esc(r.id)}">Ingatkan via WA</a>` : `<span class="hint">Tanpa nomor WA</span>`}
+        <button class="btn sm" data-renew="${esc(r.id)}">Buat perpanjangan</button>
+        <button class="btn sm" data-renewdone="${esc(r.id)}">Sudah selesai</button></div></div></div>`;
+  }).join("");
+}
+function startRenewal(id) {
+  const r = histItems().find(x => x.id === id); if (!r) return;
+  const inp = clone(r.inp), s = r.inp.end, d = new Date(s + "T00:00:00Z"); d.setUTCFullYear(d.getUTCFullYear() + 1);
+  inp.start = s; inp.end = d.toISOString().slice(0, 10);
+  updateRecord(id, { renewed: true });
+  showTab("calc"); setInput(inp); currentId = null; currentRef = null; updateSaveState();
+  toast("Penawaran perpanjangan dibuat. Periksa harga kendaraan lalu simpan.");
 }
 function openRecord(id) {
   const r = histItems().find(x => x.id === id); if (!r) return null;
@@ -642,34 +703,33 @@ function buildPdf(ref) {
   const W = 210, M = 14, NAVY = [31, 60, 136], AMBER = [242, 169, 59];
   const c = S.company, showF = D().pdfFormula;
 
-  d.setFillColor(...NAVY); d.rect(0, 0, W, 26, "F");
+  /* Kop model B: kop putih berisi logo & nama, lalu pita biru tipis */
+  const K = S.contact, GRAY = [107, 114, 128];
+  let LX = M + 23;
   if (LOGO_IMG) {
-    d.setFillColor(255, 255, 255); d.roundedRect(M, 5, 16, 16, 2, 2, "F");
-    try {
-      const p = d.getImageProperties(LOGO_IMG), k = Math.min(14 / p.width, 14 / p.height), w = p.width * k, hh = p.height * k;
-      d.addImage(LOGO_IMG, p.fileType || "PNG", M + 1 + (14 - w) / 2, 6 + (14 - hh) / 2, w, hh);
+    try {   /* logo lebar boleh sampai 38 mm, logo persegi sampai 19 mm tinggi */
+      const p = d.getImageProperties(LOGO_IMG), k = Math.min(38 / p.width, 19 / p.height), w = p.width * k, hh = p.height * k;
+      d.addImage(LOGO_IMG, p.fileType || "PNG", M, 5 + (19 - hh) / 2, w, hh);
+      LX = M + Math.max(w, 17) + 5;
     } catch {}
   } else {
-    d.setFillColor(...AMBER); d.roundedRect(M, 6, 14, 14, 2, 2, "F");
-    d.setTextColor(...NAVY); d.setFont("helvetica", "bold"); d.setFontSize(10);
-    d.text((c.logo || "AI").slice(0, 3), M + 7, 14.6, { align: "center" });
+    d.setFillColor(...AMBER); d.roundedRect(M + 1, 6, 17, 17, 2.5, 2.5, "F");
+    d.setTextColor(...NAVY); d.setFont("helvetica", "bold"); d.setFontSize(11);
+    d.text((c.logo || "VP").slice(0, 3), M + 9.5, 16.2, { align: "center" });
   }
-  d.setTextColor(255); d.setFontSize(15); d.text(c.brand || "", M + 18, 12);
-  d.setFont("helvetica", "normal"); d.setFontSize(8.5);
-  d.text([c.name, c.address].filter(Boolean).join("  ·  "), M + 18, 17);
-  d.text([c.phone && "Telp/WA " + c.phone, c.email].filter(Boolean).join("  ·  "), M + 18, 21.5);
-  const K = S.contact;
-  if (K.name || K.wa) {
-    d.setFont("helvetica", "bold"); d.setFontSize(8.5); d.text("HUBUNGI", W - M, 11, { align: "right" });
-    d.setFont("helvetica", "normal"); d.setFontSize(9.5);
-    if (K.name) d.text(K.name, W - M, 16, { align: "right" });
-    if (K.wa) d.text("WA " + K.wa, W - M, 21, { align: "right" });
-  }
+  d.setTextColor(...NAVY); d.setFont("helvetica", "bold"); d.setFontSize(15); d.text(c.brand || "", LX, 12.5);
+  d.setTextColor(...GRAY); d.setFont("helvetica", "normal"); d.setFontSize(9); if (c.name) d.text(c.name, LX, 17.6);
+  d.setFontSize(7.8);
+  const info = [c.address, c.phone && "Telp/WA " + c.phone, c.email].filter(Boolean).join("  ·  ");
+  if (info) d.text(d.splitTextToSize(info, W - M - LX)[0], LX, 22);
+  d.setFillColor(...NAVY); d.rect(0, 27, W, 7.5, "F");
+  d.setFillColor(...AMBER); d.rect(0, 34.5, W, 0.9, "F");
+  d.setTextColor(255); d.setFont("helvetica", "bold"); d.setFontSize(8.3);
+  d.text("PENAWARAN ASURANSI KENDARAAN BERMOTOR", M, 31.9);
+  if (K.name || K.wa) { d.setFont("helvetica", "normal"); d.text(`Hubungi: ${[K.name, K.wa && "WA " + K.wa].filter(Boolean).join(" · ")}`, W - M, 31.9, { align: "right" }); }
 
   d.setTextColor(20); d.setFont("helvetica", "bold"); d.setFontSize(13);
-  d.text("QUOTATION SLIP", W / 2, 35, { align: "center" });
-  d.setFontSize(9); d.setFont("helvetica", "normal");
-  d.text("PENAWARAN ASURANSI KENDARAAN BERMOTOR", W / 2, 40, { align: "center" });
+  d.text("QUOTATION SLIP", W / 2, 43, { align: "center" });
 
   const kv = (rows, startY) => d.autoTable({
     startY, body: rows, theme: "plain", margin: { left: M, right: M },
@@ -691,7 +751,7 @@ function buildPdf(ref) {
     row("TERTANGGUNG", inp.name.toUpperCase()),
     row("ALAMAT", inp.address.toUpperCase()),
     row("PERIODE", `${dLong(inp.start)} s.d ${dLong(inp.end)}${r.factor !== 1 ? ` (${r.days} hari)` : ""}\n(pukul 12.00 siang waktu setempat)`)
-  ], 45);
+  ], 47);
 
   let y = section("DATA KENDARAAN", next(2));
   kv([
@@ -767,7 +827,16 @@ function buildPdf(ref) {
 
   const n = d.internal.getNumberOfPages();
   for (let i = 1; i <= n; i++) {
-    d.setPage(i); d.setFontSize(7.5); d.setTextColor(120); d.setFont("helvetica", "normal");
+    d.setPage(i);
+    if (LOGO_IMG && S.pdfWatermark !== false) {   /* watermark logo tipis di tengah halaman */
+      try {
+        const p = d.getImageProperties(LOGO_IMG), k = Math.min(120 / p.width, 120 / p.height), w = p.width * k, hh = p.height * k;
+        d.setGState(new d.GState({ opacity: 0.055 }));
+        d.addImage(LOGO_IMG, p.fileType || "PNG", (W - w) / 2, 158 - hh / 2, w, hh, "wm", "FAST");
+        d.setGState(new d.GState({ opacity: 1 }));
+      } catch {}
+    }
+    d.setFontSize(7.5); d.setTextColor(120); d.setFont("helvetica", "normal");
     d.line(M, 287, W - M, 287);
     d.text(`${COPYRIGHT} · ${APP_VERSION}`, M, 291);
     d.text(`Ref. ${ref}  ·  Hal. ${i}/${n}`, W - M, 291, { align: "right" });
@@ -792,6 +861,7 @@ function prepare() {
   if (D().autoSave) saveRecord(true); else updateSaveState();
   return pdf;
 }
+function markSent() { if (!currentId) return; const r = histItems().find(x => x.id === currentId); if (r && (r.status || "baru") === "baru") updateRecord(currentId, { status: "dikirim" }); }
 async function doPdf() {
   if (!pdfReady()) { toast("Menyiapkan PDF…"); try { await loadPdfLibs(); } catch { return toast("PDF belum bisa dibuat. Periksa koneksi internet.", "err"); } }
   const pdf = prepare(); if (!pdf) return; download(pdf.blob, pdf.name); toast("PDF berhasil dibuat.", "ok");
@@ -802,10 +872,10 @@ async function doWa() {
   const text = summaryText(last.inp, last.r, "PENAWARAN ASURANSI KENDARAAN") + `\n\nNo. Ref: ${pdf.ref}\nRincian lengkap pada PDF terlampir.`;
   const file = new File([pdf.blob], pdf.name, { type: "application/pdf" });
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    try { await navigator.share({ files: [file], title: pdf.name, text }); return; }
+    try { await navigator.share({ files: [file], title: pdf.name, text }); markSent(); return; }
     catch (e) { if (e.name === "AbortError") return; }
   }
-  const win = window.open(`https://wa.me/${normPhone(last.inp.phone)}?text=${encodeURIComponent(text)}`, "_blank");
+  const win = window.open(`https://wa.me/${normPhone(last.inp.phone)}?text=${encodeURIComponent(text)}`, "_blank"); markSent();
   download(pdf.blob, pdf.name);
   toast(win ? "PDF diunduh — lampirkan file tersebut di chat WhatsApp." : "Izinkan pop-up untuk membuka WhatsApp. PDF sudah diunduh.", "", 6000);
 }
@@ -938,10 +1008,10 @@ function fillAdmin() {
   $("#aPolicy").value = S.policyCost; $("#aStamp").value = S.stampDuty; $("#aMaxDisc").value = S.maxDiscount;
   $("#aRegion").value = S.region; $("#aValid").value = S.validityDays; $("#aPayTerm").value = S.paymentTerm;
   $("#dispExt").innerHTML = EXT_DEFS.map(e => `<label class="chk"><input type="checkbox" data-dispext="${e.key}" ${D().ext[e.key] !== false ? "checked" : ""}><span class="t">Perluasan: ${esc(e.label)}</span></label>`).join("");
-  $$("[data-disp]").forEach(i => i.checked = !!D()[i.dataset.disp]);
+  $$("[data-disp]").forEach(i => i.checked = !!D()[i.dataset.disp]); $("#aRenewDays").value = S.renewDays || 60;
   $("#aDisc").value = S.texts.disclaimer;
   $("#kName").value = S.contact.name; $("#kWa").value = S.contact.wa;
-  renderLogoAdmin(); $("#verNow").textContent = APP_VERSION;
+  renderLogoAdmin(); $("#verNow").textContent = APP_VERSION; $("#lgWm").checked = S.pdfWatermark !== false;
   $("#hTitle").value = S.hero.title; $("#hSub").value = S.hero.subtitle; $("#hStyle").value = S.hero.style; renderHeroAdmin();
   const c = S.company;
   $("#cBrand").value = c.brand; $("#cLogo").value = c.logo; $("#cName").value = c.name; $("#cAddr").value = c.address;
@@ -976,10 +1046,12 @@ function collectAdmin() {
   S.maxDiscount = Math.min(100, Math.max(0, +$("#aMaxDisc").value || 0));
   S.region = $("#aRegion").value.trim() || "Wilayah 1"; S.validityDays = +$("#aValid").value || 14; S.paymentTerm = $("#aPayTerm").value.trim();
   $$("[data-disp]").forEach(i => S.display[i.dataset.disp] = i.checked);
+  S.renewDays = Math.min(180, Math.max(7, +$("#aRenewDays").value || 60));
   $$("[data-dispext]").forEach(i => S.display.ext[i.dataset.dispext] = i.checked);
   readCx();
   S.customExt.forEach((x, i) => { if (!x.label) throw new Error(`Perluasan tambahan nomor ${i + 1}: nama belum diisi.`); });
   readTexts(); S.texts = { disclaimer: $("#aDisc").value.trim() };
+  S.pdfWatermark = $("#lgWm").checked;
   S.contact = { name: $("#kName").value.trim(), wa: $("#kWa").value.trim() };
   S.hero = { style: $("#hStyle").value, title: $("#hTitle").value.trim() || DEFAULT_SETTINGS.hero.title, subtitle: $("#hSub").value.trim() || DEFAULT_SETTINGS.hero.subtitle };
   S.company = { brand: $("#cBrand").value.trim(), logo: $("#cLogo").value.trim().toUpperCase(), name: $("#cName").value.trim(), address: $("#cAddr").value.trim(),
@@ -995,6 +1067,7 @@ async function saveAll() {
     await setDoc(doc(fb.db, "config", "vehicles"), { list: VEH, ...meta });
     if (heroDirty) { await setDoc(doc(fb.db, "config", "hero"), { image: HERO_IMG, ...meta }); heroDirty = false; LS.set("ai_hero", HERO_IMG); }
     if (logoDirty) { await setDoc(doc(fb.db, "config", "logo"), { image: LOGO_IMG, ...meta }); logoDirty = false; LS.set("ai_logo", LOGO_IMG); }
+    autoBackup().catch(() => {});
     LS.set("ai_settings", S); LS.set("ai_vehicles", VEH);
     applySettingsToUI(); fillAdmin(); setDirty(false); showTab("admin"); toast("Pengaturan tersimpan.", "ok");
   } catch (e) {
@@ -1154,6 +1227,13 @@ function bind() {
     if (p) { if (openRecord(p.dataset.hpdf)) doPdf(); }
     if (d) deleteRecord(d.dataset.hdel);
   });
+  $("#hList").addEventListener("change", e => { const s = e.target.closest("[data-hst]"); if (s) { updateRecord(s.dataset.hst, { status: s.value }); renderHist(); toast("Status diperbarui."); } });
+  $("#hStatus").addEventListener("change", renderHist);
+  $("#renewList").addEventListener("click", e => {
+    const rm = e.target.closest("[data-remind]"); if (rm) { updateRecord(rm.dataset.remind, { remindedAt: new Date().toISOString() }); setTimeout(renderHist, 300); }
+    const rn = e.target.closest("[data-renew]"); if (rn) startRenewal(rn.dataset.renew);
+    const dn = e.target.closest("[data-renewdone]"); if (dn && confirm("Tandai pengingat ini sudah selesai?")) { updateRecord(dn.dataset.renewdone, { renewed: true }); renderHist(); }
+  });
 
   // Admin
   $("#btnLogin").addEventListener("click", async () => {
@@ -1211,7 +1291,7 @@ function bind() {
 }
 
 /* ====================== ADMIN: MENU DAFTAR + HALAMAN ISI ====================== */
-const ADM_TITLES = { inbox: "Inbox", rate: "Rate kasko", ext: "Perluasan & biaya", text: "Teks polis", veh: "Kendaraan", disp: "Tampilan", front: "Halaman depan", comp: "Perusahaan", acct: "Akun" };
+const ADM_TITLES = { backup: "Cadangan", inbox: "Inbox", rate: "Rate kasko", ext: "Perluasan & biaya", text: "Teks polis", veh: "Kendaraan", disp: "Tampilan", front: "Halaman depan", comp: "Perusahaan", acct: "Akun" };
 const SAVE_PANES = ["rate", "ext", "text", "veh", "disp", "front", "comp"];
 let admDirty = false, admPane = "inbox";
 const isMobile = () => matchMedia("(max-width: 760px)").matches;
@@ -1225,6 +1305,7 @@ function updateSaveBar() {
 }
 function openAdmPane(sub) {
   readTiers();
+  if (sub === "backup") loadBackups();
   admPane = sub;
   $$("#subtabs .mi").forEach(x => x.classList.toggle("active", x.dataset.sub === sub));
   $$("[data-pane]").forEach(p => p.hidden = p.dataset.pane !== sub);
@@ -1232,7 +1313,98 @@ function openAdmPane(sub) {
   $("#adm").classList.add("open"); updateSaveBar(); window.scrollTo(0, 0);
 }
 function closeAdmPane() { $("#adm").classList.remove("open"); updateSaveBar(); window.scrollTo(0, 0); }
+/* ====================== CADANGAN ====================== */
+const BK_APP = "vehicle-protection-backup";
+const tsIso = t => t && t.toDate ? t.toDate().toISOString() : (t || null);
+function buildBackup() {
+  readTiers();
+  return {
+    app: BK_APP, version: APP_VERSION, createdAt: new Date().toISOString(), by: user?.email || "",
+    settings: clone(S), vehicles: VEH, hero: HERO_IMG, logo: LOGO_IMG,
+    quotes: $("#bkQuotes").checked ? histItems() : [],
+    inbox: $("#bkInbox").checked ? INBOX.map(x => ({ ...x, createdAt: tsIso(x.createdAt) })) : []
+  };
+}
+function downloadBackup() {
+  const data = buildBackup(), d = new Date(), p = n => String(n).padStart(2, "0");
+  const name = `vpro-cadangan-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.json`;
+  download(new Blob([JSON.stringify(data, null, 1)], { type: "application/json" }), name);
+  toast(`Cadangan diunduh: ${name}`, "ok", 5000);
+}
+function applySettingsBackup(settings, vehicles) {
+  S = normalizeSettings(settings);
+  if (Array.isArray(vehicles) && vehicles.length) VEH = vehicles;
+  fillAdmin(); applySettingsToUI(); setDirty(true);
+}
+async function restoreFromFile(file) {
+  let data; try { data = JSON.parse(await file.text()); } catch { return toast("File tidak bisa dibaca. Pastikan file cadangan .json.", "err"); }
+  if (!data || data.app !== BK_APP || !data.settings) return toast("Ini bukan file cadangan aplikasi ini.", "err");
+  const nq = (data.quotes || []).length, ni = (data.inbox || []).length;
+  const when = data.createdAt ? new Date(data.createdAt).toLocaleString("id-ID") : "-";
+  if (!confirm(`Pulihkan cadangan tanggal ${when}?\n\n• Pengaturan & ${(data.vehicles || []).length} kendaraan\n• ${nq} riwayat penawaran\n• ${ni} pesan Inbox\n\nPengaturan baru berlaku setelah klik Simpan.`)) return;
+  applySettingsBackup(data.settings, data.vehicles);
+  if (typeof data.hero === "string") { HERO_IMG = data.hero; heroDirty = true; renderHeroAdmin(); }
+  if (typeof data.logo === "string") { LOGO_IMG = data.logo; logoDirty = true; renderLogoAdmin(); renderHdrLogo(); }
+  if (nq) {
+    const map = new Map(localHist().map(r => [r.id, r])); data.quotes.forEach(r => { if (r && r.id && !map.has(r.id)) map.set(r.id, r); });
+    setLocalHist([...map.values()].sort((a, b) => (b.savedAt || "").localeCompare(a.savedAt || "")));
+    if (fb && user) await Promise.all(data.quotes.filter(r => r && r.id).map(r => fb.F.setDoc(fb.F.doc(fb.db, "quotes", r.id), r, { merge: true }).catch(() => {})));
+  }
+  if (ni && fb && user) {
+    const { doc, setDoc, Timestamp } = fb.F;
+    await Promise.all(data.inbox.filter(x => x && x.id).map(({ id, ...x }) => setDoc(doc(fb.db, "inbox", id), { ...x, createdAt: x.createdAt ? Timestamp.fromDate(new Date(x.createdAt)) : Timestamp.now() }).catch(() => {})));
+  }
+  toast("Cadangan dimuat. Periksa lalu klik Simpan untuk menerapkan pengaturan.", "ok", 6000);
+}
+async function autoBackup() {
+  if (!fb || !user) return;
+  const { collection, addDoc, serverTimestamp, query, orderBy, getDocs, deleteDoc } = fb.F;
+  await addDoc(collection(fb.db, "backups"), { at: serverTimestamp(), by: user.email, version: APP_VERSION, settings: clone(S), vehicles: VEH });
+  const snap = await getDocs(query(collection(fb.db, "backups"), orderBy("at", "desc")));
+  await Promise.all(snap.docs.slice(20).map(d => deleteDoc(d.ref)));
+}
+let BACKUPS = [];
+async function loadBackups() {
+  const box = $("#bkList");
+  if (!fb || !user) { box.innerHTML = `<p class="hint">Masuk untuk melihat cadangan otomatis.</p>`; return; }
+  box.innerHTML = `<p class="hint">Memuat…</p>`;
+  try {
+    const { collection, query, orderBy, limit, getDocs } = fb.F;
+    const snap = await getDocs(query(collection(fb.db, "backups"), orderBy("at", "desc"), limit(20)));
+    BACKUPS = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    box.innerHTML = BACKUPS.map((b, i) => {
+      const t = b.at && b.at.toDate ? b.at.toDate().toLocaleString("id-ID", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "-";
+      return `<div class="bk"><div><b>${esc(t)}</b><div class="hint">${esc(b.by || "")} · ${esc(b.version || "")}${i === 0 ? " · terbaru" : ""}</div></div><button class="btn sm" data-bkrestore="${i}">Pulihkan</button></div>`;
+    }).join("") || `<p class="hint">Belum ada cadangan otomatis. Cadangan pertama dibuat saat Anda klik Simpan.</p>`;
+  } catch { box.innerHTML = `<p class="hint">Cadangan otomatis belum dapat dimuat. Periksa koneksi.</p>`; }
+}
+/* ====================== MODE GELAP ====================== */
+const SUN = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
+const MOON = '<svg viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>';
+const sysDark = () => matchMedia("(prefers-color-scheme: dark)").matches;
+function applyTheme() {
+  const pref = LS.get("ai_theme"), dark = pref ? pref === "dark" : sysDark();
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
+  $("#btnTheme").innerHTML = dark ? SUN : MOON;
+  $("#btnTheme").title = dark ? "Mode terang" : "Mode gelap";
+  const m = document.querySelector('meta[name="theme-color"]'); if (m) m.content = dark ? "#141e3a" : "#1f3c88";
+}
+function bindTheme() {
+  applyTheme();
+  $("#btnTheme").addEventListener("click", () => {
+    const dark = document.documentElement.dataset.theme === "dark";
+    LS.set("ai_theme", dark ? "light" : "dark"); applyTheme();
+  });
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { if (!LS.get("ai_theme")) applyTheme(); });
+}
 function bindAdmin14() {
+  $("#btnBkDown").addEventListener("click", downloadBackup);
+  $("#bkFile").addEventListener("change", async e => { const f = e.target.files[0]; if (f) await restoreFromFile(f); e.target.value = ""; });
+  $("#bkList").addEventListener("click", e => {
+    const b = e.target.closest("[data-bkrestore]"); if (!b) return;
+    const bk = BACKUPS[+b.dataset.bkrestore]; if (!bk) return;
+    if (confirm("Muat pengaturan dari cadangan ini? Pengaturan baru berlaku setelah klik Simpan.")) { applySettingsBackup(bk.settings, bk.vehicles); toast("Cadangan dimuat. Klik Simpan untuk menerapkan.", "ok", 5000); }
+  });
   $("#subtabs").addEventListener("click", e => { const b = e.target.closest("[data-sub]"); if (b) openAdmPane(b.dataset.sub); }, true);
   $("#admBack").addEventListener("click", () => closeAdmPane());
   const box = $("#adminBox");
@@ -1298,6 +1470,7 @@ function bindV12() {
 /* ====================== START ====================== */
 renderYearSelect($("#fYear")); renderYearSelect($("#qYear")); setDefaultDates();
 wantedTab = new URLSearchParams(location.search).get("tab") || LS.get("ai_tab") || "quick";
-bind(); bindV12(); bindAdmin14(); applySettingsToUI(); restoreDrafts(); applyTabs();
+bindTheme(); bind(); bindV12(); bindAdmin14(); applySettingsToUI(); restoreDrafts(); applyTabs();
 setTimeout(() => (window.requestIdleCallback || setTimeout)(() => loadPdfLibs().catch(() => {})), 2500);
+renderRenew();
 initPwa(); initFirebase();

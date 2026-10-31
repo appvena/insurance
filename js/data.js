@@ -178,6 +178,8 @@ export const FUNC_COVERS = { PRIBADI: ["comprehensive", "tlo"], DINAS: ["compreh
   S.texts = { disclaimer: S.texts.disclaimer };
   S.contact = { name: "", wa: "" };
   S.customExt = [];
+  S.renewDays = 60;
+  S.pdfWatermark = true;
   S.hero = {
     style: "pattern",
     title: "Perlindungan Menyeluruh untuk Kendaraan Anda",

@@ -26,9 +26,9 @@ service cloud.firestore {
     }
 
     // Tanya Admin: pengunjung hanya boleh MENGIRIM pesan baru dengan isi yang valid.
-    // Membaca, membalas (ubah status), dan menghapus hanya admin.
+    // Membaca, membalas (ubah status), menghapus, dan memulihkan dari cadangan hanya admin.
     match /inbox/{msgId} {
-      allow create: if request.resource.data.keys().hasOnly(['name', 'phone', 'message', 'status', 'createdAt'])
+      allow create: if isAdmin() || request.resource.data.keys().hasOnly(['name', 'phone', 'message', 'status', 'createdAt'])
         && request.resource.data.name is string
         && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 80
         && request.resource.data.phone is string
@@ -38,6 +38,11 @@ service cloud.firestore {
         && request.resource.data.status == 'baru'
         && request.resource.data.createdAt == request.time;
       allow read, update, delete: if isAdmin();
+    }
+
+    // Cadangan otomatis pengaturan: hanya admin.
+    match /backups/{backupId} {
+      allow read, write: if isAdmin();
     }
 
     // Semua koleksi lain tertutup.

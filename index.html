@@ -6,6 +6,7 @@
 <title>Vehicle Protection</title>
 <meta name="description" content="Vehicle Protection — perlindungan asuransi kendaraan dengan rincian premi yang jelas.">
 <meta name="theme-color" content="#1f3c88">
+<script>try{var t=JSON.parse(localStorage.getItem("ai_theme"));if(t==="dark"||(!t&&matchMedia("(prefers-color-scheme: dark)").matches))document.documentElement.dataset.theme="dark"}catch(e){}</script>
 <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png">
@@ -28,9 +29,10 @@
     <button class="tab" data-tab="home" hidden><svg viewBox="0 0 24 24"><path d="M3 11 12 4l9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></svg>Beranda</button>
     <button class="tab" data-tab="quick"><svg viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg>Hitung Cepat</button>
     <button class="tab" data-tab="calc"><svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg>Penawaran</button>
-    <button class="tab" data-tab="hist"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Riwayat</button>
+    <button class="tab" data-tab="hist"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Riwayat<span class="nbadge" id="histBadge" hidden></span></button>
     <button class="tab" data-tab="admin"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg><span id="adminTabLbl">Masuk</span><span class="nbadge" id="navBadge" hidden></span></button>
   </nav>
+  <button class="ibtn" id="btnTheme" aria-label="Ganti mode terang atau gelap"></button>
   <button class="ibtn" id="btnInstall" hidden>⤓ Pasang</button>
   <span id="netStatus" class="pill" hidden></span>
 </header>
@@ -163,11 +165,17 @@
 
 <!-- ================= RIWAYAT ================= -->
 <section id="tab-hist" hidden>
+  <div class="card" id="renewCard" hidden>
+    <h2>Pengingat Perpanjangan <span class="tag warn" id="renewCount"></span></h2>
+    <p class="hint" style="margin:-6px 0 6px;font-size:13.5px">Polis berstatus <b>Deal</b> yang akan atau baru saja berakhir.</p>
+    <div id="renewList"></div>
+  </div>
   <div class="card">
-    <h2>Riwayat Perhitungan <span class="tag" id="hCount"></span></h2>
+    <h2>Riwayat Penawaran <span class="tag" id="hCount"></span></h2>
     <div class="row" style="margin-bottom:6px">
       <div class="f"><input id="hFilter" placeholder="Cari nama, no. polisi, no. ref…"></div>
-      <div class="f" style="justify-content:center"><span class="hint" id="hSrc"></span></div>
+      <div class="f"><select id="hStatus"><option value="">Semua status</option><option value="baru">Baru</option><option value="dikirim">Dikirim</option><option value="deal">Deal</option><option value="batal">Batal</option><option value="exp">Kedaluwarsa</option></select></div>
+      <div class="f full"><span class="hint" id="hSrc"></span></div>
     </div>
     <div id="hList"></div>
   </div>
@@ -203,6 +211,7 @@
           <button class="mi" data-sub="disp"><span class="ic gray"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 9v11"/></svg></span><span class="t">Tampilan<small>Menu & pilihan di halaman</small></span><svg class="chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></button>
           <button class="mi" data-sub="front"><span class="ic gray"><svg viewBox="0 0 24 24"><path d="M3 11 12 4l9 7"/><path d="M5 10v10h14V10"/></svg></span><span class="t">Halaman depan<small>Hubungi saya, header</small></span><svg class="chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></button>
           <button class="mi" data-sub="comp"><span class="ic gray"><svg viewBox="0 0 24 24"><path d="M4 21V7l8-4 8 4v14"/><path d="M9 21v-5h6v5M9 10h.01M15 10h.01"/></svg></span><span class="t">Perusahaan<small>Identitas & logo</small></span><svg class="chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></button>
+          <button class="mi" data-sub="backup"><span class="ic gray"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span class="t">Cadangan<small>Unduh, pulihkan, otomatis</small></span><svg class="chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></button>
           <button class="mi" data-sub="acct"><span class="ic gray"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></span><span class="t">Akun<small>Password, email, versi</small></span><svg class="chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></button>
         </div>
       </div>
@@ -274,6 +283,7 @@
         <div class="chks">
           <label class="chk"><input type="checkbox" data-disp="quick"><span class="t">Tampilkan <b>Hitung Cepat</b> untuk pengunjung web (tanpa login)<br><span class="hint">Jika dimatikan, pengunjung melihat halaman informasi asuransi kendaraan. Setelah login, Hitung Cepat selalu tampil.</span></span></label>
           <label class="chk"><input type="checkbox" data-disp="history"><span class="t">Tampilkan menu <b>Riwayat Perhitungan</b> (setelah login)</span></label>
+          <div class="f" style="margin:4px 0"><label>Tampilkan pengingat perpanjangan sejak berapa hari sebelum polis berakhir</label><input id="aRenewDays" type="number" min="7" max="180"></div>
           <label class="chk"><input type="checkbox" data-disp="autoSave"><span class="t">Simpan otomatis ke riwayat saat membuat PDF atau kirim WA</span></label>
         </div>
         <p class="hint">Menyembunyikan menu Riwayat tidak menghapus perhitungan yang sudah tersimpan.</p></div>
@@ -347,7 +357,8 @@
             <img id="lgPreview" alt="" style="width:56px;height:56px;object-fit:contain;border:1px solid var(--bd);border-radius:10px;background:#fff;padding:4px">
             <button class="btn sm danger" id="btnLogoDel">Hapus logo</button></div></div>
         </div>
-        <p class="hint">Tanpa logo, header memakai ikon setir dan PDF memakai inisial logo.</p>
+        <label class="chk" style="margin-top:10px"><input type="checkbox" id="lgWm"><span class="t">Tampilkan logo sebagai watermark tipis di setiap halaman PDF</span></label>
+        <p class="hint">Tanpa logo, header memakai ikon aplikasi dan PDF memakai inisial logo (tanpa watermark).</p>
       </div>
     </div>
 
@@ -369,6 +380,23 @@
           <div class="btns"><button class="btn sm danger" id="btnHeroDel" style="flex:0 1 auto">Hapus foto</button></div></div>
         <p class="hint">Foto dikecilkan otomatis. Gunakan foto milik sendiri. Jika gaya "Foto upload" dipilih tanpa foto, header memakai warna & pola.</p>
       </div>
+    </div>
+
+    <div data-pane="backup" hidden>
+      <div class="card"><h2>Unduh Cadangan</h2>
+        <p class="hint" style="margin-top:-6px">Simpan satu file berisi semua pengaturan: rate, perluasan, teks polis, kendaraan, tampilan, perusahaan, logo, dan foto header.</p>
+        <div class="chks">
+          <label class="chk"><input type="checkbox" id="bkQuotes" checked><span class="t">Sertakan riwayat penawaran</span></label>
+          <label class="chk"><input type="checkbox" id="bkInbox" checked><span class="t">Sertakan pesan Inbox</span></label>
+        </div>
+        <div class="btns"><button class="btn pri" id="btnBkDown" style="flex:0 1 auto">Unduh file cadangan</button></div>
+        <p class="hint">Simpan file ini di tempat aman, misalnya Google Drive. Disarankan mengunduh cadangan setiap selesai mengubah rate.</p></div>
+      <div class="card"><h2>Pulihkan dari File</h2>
+        <p class="hint" style="margin-top:-6px">Pilih file cadangan (.json). Pengaturan dimuat ke formulir dan baru berlaku setelah Anda klik <b>Simpan</b>. Riwayat dan pesan Inbox digabungkan, tidak menghapus yang sudah ada.</p>
+        <div class="f"><input id="bkFile" type="file" accept="application/json,.json"></div></div>
+      <div class="card"><h2>Cadangan Otomatis</h2>
+        <p class="hint" style="margin-top:-6px">Setiap kali Anda klik Simpan, salinan pengaturan dan daftar kendaraan disimpan otomatis. 20 salinan terakhir disimpan. Logo dan foto header tidak termasuk.</p>
+        <div id="bkList"></div></div>
     </div>
 
     <div data-pane="acct" hidden>
@@ -398,7 +426,7 @@
 </section>
 </main>
 
-<footer><div id="ftContact"></div>Copyright © SRISP 2026 · v1.4.1</footer>
+<footer><div id="ftContact"></div>Copyright © SRISP 2026 · v1.5.1</footer>
 
 <div class="modal" id="iosModal" hidden>
   <div class="card">
