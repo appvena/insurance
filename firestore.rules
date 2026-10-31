@@ -20,6 +20,11 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // Riwayat perhitungan yang disinkron ke cloud: hanya admin.
+    match /quotes/{quoteId} {
+      allow read, write: if isAdmin();
+    }
+
     // Semua koleksi lain tertutup.
     match /{document=**} {
       allow read, write: if false;

@@ -1,0 +1,24 @@
+{
+  "name": "Kalkulator Asuransi Kendaraan",
+  "short_name": "Asuransi",
+  "description": "Hitung premi asuransi kendaraan, buat penawaran PDF, dan kirim via WhatsApp.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#f3f5fa",
+  "theme_color": "#0b2a5b",
+  "lang": "id",
+  "categories": ["finance", "business", "productivity"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Hitung Cepat", "url": "./?tab=quick", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Penawaran Baru", "url": "./?tab=calc", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}
