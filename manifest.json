@@ -1,7 +1,7 @@
 {
-  "name": "Kalkulator Asuransi Kendaraan",
-  "short_name": "Asuransi",
-  "description": "Hitung premi asuransi kendaraan, buat penawaran PDF, dan kirim via WhatsApp.",
+  "name": "Vehicle Protection",
+  "short_name": "Vehicle Protection",
+  "description": "Perlindungan asuransi kendaraan.",
   "id": "./",
   "start_url": "./",
   "scope": "./",

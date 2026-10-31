@@ -1,7 +1,7 @@
-/* Service worker — Kalkulator Asuransi Kendaraan
+/* Service worker — Vehicle Protection
    PENTING: naikkan VERSION setiap kali ada file yang diubah,
    supaya HP/PC yang sudah memasang aplikasi mendapat versi baru. */
-const VERSION = "ai-v1.1.0";
+const VERSION = "ai-v1.2.0";
 const SHELL = [
   "./", "./index.html", "./manifest.json",
   "./css/style.css", "./js/app.js", "./js/config.js", "./js/data.js",
@@ -65,5 +65,5 @@ self.addEventListener("fetch", e => {
       return hit || (await net) || Response.error();
     })());
   }
-  // Firestore, login Firebase, WhatsApp: langsung ke jaringan.
+  // Permintaan lain langsung ke jaringan.
 });

@@ -1,6 +1,6 @@
-/* Kalkulator Asuransi Kendaraan — v1.1 · Copyright © SRISP 2026 */
+/* Vehicle Protection — v1.2 · Copyright © SRISP 2026 */
 import { firebaseConfig, FB_VER, APP_VERSION, COPYRIGHT } from "./config.js";
-import { EXT_DEFS, COVER_LABEL, DEFAULT_SETTINGS, DEFAULT_VEHICLES } from "./data.js";
+import { EXT_DEFS, COVER_LABEL, DEFAULT_SETTINGS, DEFAULT_VEHICLES, FUNCS, FUNC_COVERS } from "./data.js";
 
 /* ====================== UTIL ====================== */
 const $ = s => document.querySelector(s);
@@ -31,8 +31,19 @@ function mergeDeep(base, extra) {
   }
   return base;
 }
-let S = mergeDeep(clone(DEFAULT_SETTINGS), LS.get("ai_settings"));
-delete S.updatedAt; delete S.updatedBy;
+function normalizeSettings(raw) {
+  const s = mergeDeep(clone(DEFAULT_SETTINGS), raw || {});
+  if (raw && raw.tiers && !raw.tiersByFunc) FUNCS.forEach(f => FUNC_COVERS[f.key].forEach(cv => { if (raw.tiers[cv]) s.tiersByFunc[f.key][cv] = clone(raw.tiers[cv]); }));
+  if (raw && raw.texts && raw.texts.deductible != null && !raw.textsByFunc)
+    FUNCS.forEach(f => ["deductible", "clauses", "subjectivity"].forEach(k => { if (raw.texts[k] != null) s.textsByFunc[f.key][k] = raw.texts[k]; }));
+  FUNCS.forEach(f => { const t = {}; FUNC_COVERS[f.key].forEach(cv => t[cv] = s.tiersByFunc[f.key][cv] || clone(s.tiersByFunc.PRIBADI.comprehensive)); s.tiersByFunc[f.key] = t; });
+  s.texts = { disclaimer: s.texts.disclaimer };
+  delete s.tiers; delete s.updatedAt; delete s.updatedBy;
+  return s;
+}
+let S = normalizeSettings(LS.get("ai_settings"));
+const funcLabel = k => (FUNCS.find(f => f.key === k) || { label: k || "-" }).label;
+const TX = k => S.textsByFunc[k] || S.textsByFunc.PRIBADI;
 let VEH = Array.isArray(LS.get("ai_vehicles")) ? LS.get("ai_vehicles") : clone(DEFAULT_VEHICLES);
 let fb = null, user = null, last = null, lastQuick = null;
 let currentId = null, currentRef = null, cloudHist = null;
@@ -55,7 +66,9 @@ function period(start, end) {
 }
 function calculate(S, inp) {
   const si = inp.price + inp.acc;
-  const { rate: baseRate } = tierRate(S.tiers[inp.cover] || S.tiers.comprehensive, si);
+  const ft = S.tiersByFunc[inp.func] || S.tiersByFunc.PRIBADI;
+  const cover = ft[inp.cover] ? inp.cover : "comprehensive";
+  const { rate: baseRate } = tierRate(ft[cover], si);
   const startYear = inp.start ? +inp.start.slice(0, 4) : new Date().getFullYear();
   const age = Math.max(0, startYear - (inp.year || startYear));
   const al = S.ageLoading;
@@ -67,7 +80,7 @@ function calculate(S, inp) {
     out.push({ label, base, rate, group, prem: Math.round(base * rate / 100 * factor) });
 
   if (si > 0) {
-    add(COVER_LABEL[inp.cover], si, effRate, "casco");
+    add(COVER_LABEL[cover], si, effRate, "casco");
     EXT_DEFS.forEach(e => { if (inp.ext[e.key]) add(e.label, si, +S.ext[e.key] || 0, "casco"); });
   }
   if (inp.tjh > 0) add("Tanggung Jawab Hukum Pihak III", inp.tjh, +S.tjhRate, "liab");
@@ -93,10 +106,12 @@ function fillSelect(sel, opts, keep = true) {
   sel.innerHTML = opts.map(o => `<option value="${esc(o.v)}">${esc(o.t)}</option>`).join("");
   if (keep && [...sel.options].some(o => o.value === prev)) sel.value = prev;
 }
-function renderCoverSelect(sel) {
+function renderCoverSelect(sel, func = "PRIBADI") {
+  const allowed = FUNC_COVERS[func] || ["comprehensive"];
   const opts = [{ v: "comprehensive", t: COVER_LABEL.comprehensive }];
-  if (D().tlo) opts.push({ v: "tlo", t: COVER_LABEL.tlo });
-  fillSelect(sel, opts);
+  if (D().tlo && allowed.includes("tlo")) opts.push({ v: "tlo", t: COVER_LABEL.tlo });
+  const prev = sel.value; fillSelect(sel, opts);
+  return prev === "tlo" && sel.value !== "tlo";
 }
 function renderYearSelect(sel) {
   const y = new Date().getFullYear();
@@ -145,17 +160,18 @@ function summaryText(inp, r, title) {
   if (inp.name) out.push(`Tertanggung: ${inp.name}`);
   const veh = `${inp.brand || ""} ${inp.model || ""}`.trim();
   if (veh || inp.year) out.push(`Kendaraan: ${veh || "-"} (${inp.year})${inp.plate ? " · " + inp.plate : ""}`);
-  out.push(`Jaminan: ${COVER_LABEL[inp.cover]}`, `Harga Pertanggungan: ${rp(r.si)}`, "");
+  out.push(`Fungsi: ${funcLabel(inp.func)}`, `Jaminan: ${COVER_LABEL[inp.cover]}`, `Harga Pertanggungan: ${rp(r.si)}`, "");
   r.lines.forEach(l => out.push(`• ${l.label}: ${rp(l.prem)}`));
   if (r.discAmt) out.push(`• Diskon ${pct(r.disc)}: -${rp(r.discAmt)}`);
   out.push(`Total Premi: ${rp(r.net)}`, `Biaya Polis + Materai: ${rp(r.policyCost + r.stampDuty)}`, `*Total Bayar: ${rp(r.total)}*`);
+  const k = S.contact; if (k.name || k.wa) out.push("", `Hubungi: ${[k.name, k.wa && "WA " + k.wa].filter(Boolean).join(" · ")}`);
   return out.join("\n");
 }
 
 /* ====================== HITUNG CEPAT ====================== */
 function readQuick() {
   return {
-    cover: $("#qCover").value, price: parseNum($("#qPrice").value), acc: parseNum($("#qAcc").value),
+    func: $("#qFunc").value, cover: $("#qCover").value, price: parseNum($("#qPrice").value), acc: parseNum($("#qAcc").value),
     year: +$("#qYear").value, start: "", end: "", seats: +$("#qSeats").value || 0,
     ext: readExt("qext_"), tjh: liabVal("tjh", "#qTjh"), paD: liabVal("paD", "#qPaD"), paP: liabVal("paP", "#qPaP"),
     disc: +$("#qDisc").value || 0
@@ -163,6 +179,7 @@ function readQuick() {
 }
 function recalcQuick() { const inp = readQuick(); const r = calculate(S, inp); lastQuick = { inp, r }; renderResult("q", r); saveDrafts(); }
 function setQuick(q) {
+  setSel($("#qFunc"), q.func || "PRIBADI"); renderCoverSelect($("#qCover"), $("#qFunc").value);
   setSel($("#qCover"), q.cover); setSel($("#qYear"), q.year);
   $("#qPrice").value = q.price ? fmt(q.price) : ""; $("#qAcc").value = q.acc ? fmt(q.acc) : "";
   $("#qSeats").value = q.seats || 7;
@@ -225,7 +242,7 @@ function setSel(sel, val) { const s = String(val ?? ""); if ([...sel.options].so
 function setInput(inp) {
   const set = (id, v) => { $(id).value = v ?? ""; };
   set("#fName", inp.name); set("#fAddr", inp.address); set("#fPhone", inp.phone);
-  setSel($("#fFunc"), inp.func); setSel($("#fCond"), inp.cond);
+  setSel($("#fFunc"), inp.func); setSel($("#fCond"), inp.cond); renderCoverSelect($("#fCover"), $("#fFunc").value);
   const idx = VEH.findIndex(v => v.brand === inp.brand && v.model === inp.model);
   if (idx >= 0) { $("#fBrand").value = inp.brand; renderModels(); $("#fModel").value = String(idx); $("#fModelManual").value = ""; }
   else if (!inp.brand && !inp.model) { $("#fBrand").value = ""; renderModels(); $("#fModelManual").value = ""; }
@@ -291,7 +308,7 @@ function applySettingsToUI() {
   $("#discWrap").hidden = !discOn; $("#qDiscWrap").hidden = !discOn;
   $$(".discMax").forEach(e => e.textContent = S.maxDiscount);
   $("#qSeatsWrap").hidden = !(S.paPassPerSeat && D().paP);
-  renderCoverSelect($("#fCover")); renderCoverSelect($("#qCover"));
+  renderCoverSelect($("#fCover"), $("#fFunc").value); renderCoverSelect($("#qCover"), $("#qFunc").value);
   renderExt("#extList", "ext_"); renderExt("#qExtList", "qext_");
   renderLimitSelects({ tjh: "#fTjh", paD: "#fPaD", paP: "#fPaP" });
   renderLimitSelects({ tjh: "#qTjh", paD: "#qPaD", paP: "#qPaP" });
@@ -302,6 +319,7 @@ function applySettingsToUI() {
   if (keepQ) setQuick(keepQ); else recalcQuick();
   applyTabs();
   if (!$("#tab-home").hidden) renderHome();
+  renderPublicExtras();
 }
 /* Penawaran & Riwayat hanya setelah login. Selama status login belum diketahui (mis. offline),
    dipakai tanda login terakhir di perangkat ini. */
@@ -316,6 +334,7 @@ function applyTabs() {
   TABS.forEach(t => $(`.tab[data-tab="${t}"]`).hidden = !tabAllowed(t));
   $("#adminTabLbl").textContent = isAuthed() ? "Admin" : "Masuk";
   $("#qToFull").closest(".btns").hidden = !isAuthed();
+  renderPublicExtras();
   showTab(wantedTab || "quick", true);
 }
 function showTab(name, auto = false) {
@@ -325,12 +344,13 @@ function showTab(name, auto = false) {
   $$(".tab").forEach(x => x.classList.toggle("active", x.dataset.tab === name));
   TABS.forEach(t => $("#tab-" + t).hidden = t !== name);
   if (name === "hist" && changed) loadHistory();
-  if (name === "home") renderHome();
+  if (name === "home" && (changed || !$("#homeBox").innerHTML)) renderHome();
   renderAdminGate();
   if (changed && !auto) window.scrollTo(0, 0);
 }
 
-/* ====================== BERANDA (tanpa hitungan) ====================== */
+/* ====================== BERANDA, HUBUNGI SAYA & TANYA ADMIN ====================== */
+let HERO_IMG = LS.get("ai_hero") || "", heroDirty = false;
 const IC = {
   shield: '<path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/><path d="m9 12 2 2 4-4"/>',
   car: '<path d="M5 17h14M6 17v2M18 17v2"/><path d="M3 13l2-5a2 2 0 0 1 2-1h10a2 2 0 0 1 2 1l2 5v4H3z"/><circle cx="7.5" cy="14" r="1"/><circle cx="16.5" cy="14" r="1"/>',
@@ -339,13 +359,43 @@ const IC = {
   alert: '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17h.01"/>',
   tool: '<path d="M14 7a4 4 0 0 0 5 5l-8 8-3-3 8-8a4 4 0 0 0-2-2z"/>',
   users: '<circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0 1 12 0"/><circle cx="17" cy="9" r="2.5"/><path d="M15.5 14.5A5 5 0 0 1 21 19"/>',
-  heart: '<path d="M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.5-7 10-7 10z"/>',
-  doc: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/>'
+  heart: '<path d="M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.5-7 10-7 10z"/>'
 };
 const ico = k => `<div class="ic"><svg viewBox="0 0 24 24">${IC[k]}</svg></div>`;
+const contactWa = () => normPhone(S.contact.wa || S.company.phone);
+const waLink = (txt = "Halo, saya ingin konsultasi asuransi kendaraan.") => contactWa() ? `https://wa.me/${contactWa()}?text=${encodeURIComponent(txt)}` : "";
+const initials = n => String(n || "").trim().split(/\s+/).slice(0, 2).map(w => w[0] || "").join("").toUpperCase() || "VP";
+function contactCardHTML(inHero = false) {
+  const k = S.contact, name = k.name || S.company.brand, wa = k.wa || S.company.phone;
+  if (!k.name && !wa) return "";
+  const body = `<div class="ct"><div class="av">${esc(initials(name))}</div><div><b>${esc(name)}</b>${wa ? `<div class="hint" style="font-size:13.5px">WhatsApp ${esc(wa)}</div>` : ""}</div></div>
+    ${waLink() ? `<div class="btns"><a class="btn wa" href="${waLink()}" target="_blank" rel="noopener">Chat WhatsApp</a></div>` : ""}`;
+  return inHero ? `<div class="hcard"><h3>Hubungi Saya</h3><p class="hint" style="margin:0 0 6px;font-size:13.5px">Konsultasi gratis seputar perlindungan kendaraan Anda.</p>${body}</div>`
+    : `<div class="card"><h2>Hubungi Saya</h2>${body}</div>`;
+}
+function askCardHTML(id) {
+  return `<div class="card" id="${id}"><h2>Tanya Admin</h2>
+    <p class="hint" style="margin:-6px 0 12px;font-size:14px">Tinggalkan pertanyaan Anda. Kami akan membalas melalui WhatsApp ke nomor yang Anda isi.</p>
+    <form data-ask novalidate>
+      <div class="row">
+        <div class="f"><label>Nama *</label><input name="name" maxlength="80" autocomplete="name"></div>
+        <div class="f"><label>No. HP / WhatsApp *</label><input name="phone" inputmode="tel" maxlength="20" autocomplete="tel" placeholder="08xxxxxxxxxx"></div>
+        <div class="f full"><label>Pertanyaan *</label><textarea name="message" maxlength="1000" placeholder="Tulis pertanyaan Anda…"></textarea></div>
+      </div>
+      <input name="website" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <div class="btns"><button class="btn pri" type="submit">Kirim Pertanyaan</button></div>
+      <p class="note ask-ok" hidden style="margin-top:12px"></p>
+    </form></div>`;
+}
+function renderPublicExtras() {
+  const box = $("#qExtra");
+  const html = isAuthed() ? "" : `<div class="grid2">${askCardHTML("qAsk")}${contactCardHTML() || "<div></div>"}</div>`;
+  if (box.dataset.sig !== html) { box.innerHTML = html; box.dataset.sig = html; }
+  const k = S.contact, wa = k.wa || S.company.phone, name = k.name || "";
+  $("#ftContact").innerHTML = (name || wa) ? `Hubungi: ${esc(name)}${name && wa ? " · " : ""}${wa ? (waLink() ? `<a href="${waLink()}" target="_blank" rel="noopener">WA ${esc(wa)}</a>` : "WA " + esc(wa)) : ""}` : "";
+}
 function renderHome() {
-  const c = S.company, wa = normPhone(c.phone);
-  const waHref = wa ? `https://wa.me/${wa}?text=${encodeURIComponent("Halo, saya ingin konsultasi asuransi kendaraan.")}` : "";
+  const c = S.company, h = S.hero, photo = h.style === "photo" && HERO_IMG;
   const ext = {
     flood: ["drop", "Banjir & Angin Topan", "Kerusakan akibat banjir, angin topan, badai, hujan es, dan tanah longsor."],
     eq: ["wave", "Gempa Bumi & Tsunami", "Kerusakan akibat gempa bumi, tsunami, dan letusan gunung berapi."],
@@ -357,26 +407,21 @@ function renderHome() {
   if (D().tjh) extCards.push(["users", "Tanggung Jawab Pihak Ketiga", "Ganti rugi kepada orang lain yang dirugikan akibat kendaraan Anda."]);
   if (D().paD || D().paP) extCards.push(["heart", "Kecelakaan Diri", "Santunan bagi pengemudi dan penumpang yang cedera atau meninggal akibat kecelakaan."]);
   const card = ([i, t, d]) => `<div class="feat">${ico(i)}<b>${esc(t)}</b><p>${esc(d)}</p></div>`;
-  const ctaBtns = (waHref ? `<a class="btn" href="${waHref}" target="_blank" rel="noopener">Konsultasi via WhatsApp</a>` : "")
-    + `<button class="btn ghost" data-goto="admin">Masuk Agen</button>`;
+  const heroSide = contactCardHTML(true) || `<div class="hcard"><h3>Konsultasi Gratis</h3><p class="hint" style="margin:0;font-size:13.5px">Ajukan pertanyaan seputar perlindungan kendaraan Anda, kami bantu jelaskan.</p><div class="btns"><button class="btn pri" data-scroll="#homeAsk">Tanya Admin</button></div></div>`;
   $("#homeBox").innerHTML = `
-  <div class="hero">
+  <section class="hero2${photo ? " photo" : ""}"${photo ? ` style="--hero:url('${HERO_IMG}')"` : ""}>
     <div>
-      <h1>Asuransi Kendaraan yang Melindungi Setiap Perjalanan</h1>
-      <p>Perlindungan untuk mobil Anda dari risiko kerusakan, kehilangan, hingga tanggung jawab kepada pihak lain${c.name ? `, bersama ${esc(c.name)}` : ""}.</p>
-      <div class="btns" style="margin-top:0">${ctaBtns}</div>
+      <span class="eyebrow">Vehicle Protection</span>
+      <h1>${esc(h.title)}</h1>
+      <p class="lead">${esc(h.subtitle)}</p>
+      <div class="btns">
+        ${waLink() ? `<a class="btn acc" href="${waLink()}" target="_blank" rel="noopener">Hubungi via WhatsApp</a>` : ""}
+        <button class="btn ghost" data-scroll="#homeAsk">Tanya Admin</button>
+      </div>
+      <ul class="trust"><li>Tarif mengacu ketentuan OJK</li><li>Rincian premi transparan</li><li>Dibantu hingga polis terbit</li></ul>
     </div>
-    <svg viewBox="0 0 320 200" aria-hidden="true">
-      <ellipse cx="160" cy="170" rx="130" ry="10" fill="rgba(0,0,0,.18)"/>
-      <path d="M40 140v-22c0-8 5-14 13-16l30-8 28-30c6-6 13-9 22-9h64c10 0 18 4 24 11l26 29 30 6c9 2 15 9 15 18v21c0 6-4 10-10 10H50c-6 0-10-4-10-10z" fill="#fff"/>
-      <path d="M118 66c4-4 9-6 15-6h28v34h-62zM173 60h20c7 0 13 3 17 8l22 26h-59z" fill="#bcd0f0"/>
-      <circle cx="95" cy="150" r="22" fill="#1b2333"/><circle cx="95" cy="150" r="9" fill="#cfd6e4"/>
-      <circle cx="240" cy="150" r="22" fill="#1b2333"/><circle cx="240" cy="150" r="9" fill="#cfd6e4"/>
-      <rect x="276" y="114" width="16" height="8" rx="3" fill="#f5a623"/>
-      <path d="M232 18 262 30v22c0 18-13 29-30 34-17-5-30-16-30-34V30z" fill="#f5a623"/>
-      <path d="m220 50 9 9 16-17" fill="none" stroke="#0b2a5b" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
-    </svg>
-  </div>
+    ${heroSide}
+  </section>
 
   <h2 class="sec-t">Pilihan Perlindungan</h2>
   <div class="cards">
@@ -388,23 +433,96 @@ function renderHome() {
 
   <h2 class="sec-t">Cara Mengajukan</h2>
   <div class="steps">
-    <div class="feat"><b>Konsultasi</b><p>Hubungi kami dan sampaikan jenis kendaraan serta perlindungan yang diinginkan.</p></div>
+    <div class="feat"><b>Konsultasi</b><p>Sampaikan jenis kendaraan, fungsi kendaraan, dan perlindungan yang diinginkan.</p></div>
     <div class="feat"><b>Kirim Dokumen</b><p>STNK yang masih berlaku, KTP tertanggung, dan foto kendaraan dari keempat sisi.</p></div>
     <div class="feat"><b>Survei Kendaraan</b><p>Kondisi kendaraan diperiksa sebelum pertanggungan dimulai.</p></div>
     <div class="feat"><b>Terima Penawaran</b><p>Anda menerima rincian premi, lalu polis diterbitkan setelah persetujuan dan pembayaran.</p></div>
   </div>
 
+  <h2 class="sec-t" id="homeAskT">Ada Pertanyaan?</h2>
+  <div class="grid2">${askCardHTML("homeAsk")}${contactCardHTML() || "<div></div>"}</div>
+
   <h2 class="sec-t">Pertanyaan Umum</h2>
   <details><summary>Apa beda Comprehensive dan TLO?</summary><p>Comprehensive menjamin kerusakan kecil hingga total, sedangkan TLO hanya menjamin bila kerugian mencapai 75% atau lebih dari harga kendaraan atau kendaraan hilang. Premi TLO lebih rendah.</p></details>
+  <details><summary>Apakah premi kendaraan pribadi, dinas, dan komersial berbeda?</summary><p>Ya. Kendaraan komersial memiliki risiko pemakaian yang lebih tinggi sehingga rate dan ketentuannya berbeda, dan hanya tersedia jaminan Comprehensive.</p></details>
   <details><summary>Bagaimana premi dihitung?</summary><p>Premi dihitung dari harga pertanggungan kendaraan dikalikan rate sesuai ketentuan OJK untuk ${esc(S.region)}, ditambah perluasan yang dipilih, biaya polis, dan materai.</p></details>
   <details><summary>Apa itu risiko sendiri (deductible)?</summary><p>Bagian kerugian yang ditanggung sendiri oleh tertanggung setiap kali klaim. Besarnya tercantum di penawaran dan polis.</p></details>
   <details><summary>Berapa lama penawaran berlaku?</summary><p>Penawaran berlaku ${esc(S.validityDays)} hari sejak tanggal penawaran dibuat.</p></details>
+  ${(c.name || c.address) ? `<p class="hint" style="text-align:center;margin-top:18px">${[c.name, c.address].filter(Boolean).map(esc).join(" · ")}</p>` : ""}`;
+}
+async function sendQuestion(f) {
+  const v = n => f.elements[n].value.trim();
+  const name = v("name"), phone = v("phone").replace(/[^\d+]/g, ""), message = v("message");
+  if (f.elements.website.value) { f.reset(); return; }
+  if (!name) return toast("Nama belum diisi.", "err");
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length < 9 || digits.length > 15) return toast("Nomor HP / WhatsApp tidak valid.", "err");
+  if (message.length < 5) return toast("Pertanyaan terlalu singkat.", "err");
+  if (Date.now() - (+LS.get("ai_ask_last") || 0) < 60000) return toast("Tunggu sebentar sebelum mengirim pertanyaan lagi.", "err");
+  if (!fb || !navigator.onLine) return toast("Tidak dapat mengirim. Periksa koneksi internet.", "err");
+  const btn = f.querySelector("button[type=submit]"); btn.disabled = true; btn.textContent = "Mengirim…";
+  try {
+    await fb.F.addDoc(fb.F.collection(fb.db, "inbox"), { name: name.slice(0, 80), phone: phone.slice(0, 20), message: message.slice(0, 1000), status: "baru", createdAt: fb.F.serverTimestamp() });
+    LS.set("ai_ask_last", Date.now()); f.reset();
+    const ok = f.querySelector(".ask-ok"); ok.hidden = false;
+    ok.textContent = `Terima kasih, ${name}. Pertanyaan Anda sudah kami terima dan akan dibalas melalui WhatsApp ke ${phone}.`;
+    toast("Pertanyaan terkirim.", "ok");
+  } catch { toast("Pertanyaan gagal dikirim. Coba lagi.", "err"); }
+  finally { btn.disabled = false; btn.textContent = "Kirim Pertanyaan"; }
+}
 
-  <div class="cta">
-    <b style="font-size:17px;color:var(--pri)">${esc(c.brand || "Asuransi Kendaraan")}</b>
-    <p class="hint" style="font-size:14px;margin:6px 0 0">${[c.address, c.phone && "Telp/WA " + c.phone, c.email].filter(Boolean).map(esc).join(" · ") || "Hubungi agen kami untuk penawaran."}</p>
-    ${waHref ? `<div class="btns" style="justify-content:center"><a class="btn wa" style="flex:0 1 auto" href="${waHref}" target="_blank" rel="noopener">Chat WhatsApp</a></div>` : ""}
-  </div>`;
+/* ====================== INBOX ADMIN ====================== */
+let INBOX = [], inboxUnsub = null, inboxFirst = true;
+function startInbox() {
+  stopInbox(); if (!fb || !user) return;
+  const { collection, query, orderBy, limit, onSnapshot } = fb.F; inboxFirst = true;
+  inboxUnsub = onSnapshot(query(collection(fb.db, "inbox"), orderBy("createdAt", "desc"), limit(300)), snap => {
+    const before = new Set(INBOX.map(x => x.id));
+    INBOX = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    if (!inboxFirst) { const fresh = INBOX.filter(x => !before.has(x.id) && x.status !== "dibalas"); if (fresh.length) toast(`Pertanyaan baru dari ${fresh[0].name}`, "ok", 5000); }
+    inboxFirst = false; renderInbox();
+  }, () => {});
+}
+function stopInbox() { if (inboxUnsub) { inboxUnsub(); inboxUnsub = null; } INBOX = []; renderInbox(); }
+function waReply(x) {
+  const t = `Halo ${x.name}, terima kasih sudah bertanya kepada ${S.contact.name || S.company.brand}.\n\nPertanyaan Anda:\n"${x.message}"\n\n`;
+  return `https://wa.me/${normPhone(x.phone)}?text=${encodeURIComponent(t)}`;
+}
+function renderInbox() {
+  const n = INBOX.filter(x => x.status !== "dibalas").length;
+  [$("#navBadge"), $("#inboxBadge")].forEach(el => { el.hidden = !n; el.textContent = n > 99 ? "99+" : n; });
+  $("#inboxCount").textContent = `${n} belum dibalas`;
+  const f = $("#inboxFilter").value, q = $("#inboxSearch").value.trim().toLowerCase();
+  const rows = INBOX.filter(x => (f === "all" || (f === "baru" ? x.status !== "dibalas" : x.status === "dibalas"))
+    && (!q || `${x.name} ${x.phone} ${x.message}`.toLowerCase().includes(q)));
+  $("#inboxList").innerHTML = rows.map(x => {
+    const t = x.createdAt && x.createdAt.toDate ? x.createdAt.toDate().toLocaleString("id-ID", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "baru saja";
+    const done = x.status === "dibalas";
+    return `<div class="msg${done ? " done" : ""}"><div class="msg-h"><div><b>${esc(x.name)}</b><div class="hint" style="font-size:13px">${esc(x.phone)} · ${esc(t)}</div></div>
+      <span class="tag ${done ? "ok" : "warn"}">${done ? "Sudah dibalas" : "Belum dibalas"}</span></div>
+      <p>${esc(x.message)}</p>
+      <div class="hact"><a class="btn sm wa" href="${waReply(x)}" target="_blank" rel="noopener" data-reply="${esc(x.id)}">Balas via WA</a>
+      <button class="btn sm" data-mark="${esc(x.id)}">${done ? "Tandai belum dibalas" : "Tandai sudah dibalas"}</button>
+      <button class="btn sm danger" data-idel="${esc(x.id)}">Hapus</button></div></div>`;
+  }).join("") || `<div class="empty">${INBOX.length ? "Tidak ada pesan pada filter ini." : "Belum ada pertanyaan masuk."}</div>`;
+}
+async function setInboxStatus(id, status) {
+  try { await fb.F.updateDoc(fb.F.doc(fb.db, "inbox", id), { status }); } catch { toast("Gagal memperbarui. Coba lagi.", "err"); }
+}
+function compressImage(file) {
+  return new Promise((res, rej) => {
+    const img = new Image(), url = URL.createObjectURL(file);
+    img.onload = () => {
+      const scale = Math.min(1, 1600 / img.width), cv = document.createElement("canvas");
+      cv.width = Math.round(img.width * scale); cv.height = Math.round(img.height * scale);
+      cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height); URL.revokeObjectURL(url);
+      let q = 0.82, out = cv.toDataURL("image/jpeg", q);
+      while (out.length > 700000 && q > 0.4) { q -= 0.08; out = cv.toDataURL("image/jpeg", q); }
+      out.length > 900000 ? rej(new Error("Foto terlalu besar.")) : res(out);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); rej(new Error("File bukan gambar yang valid.")); };
+    img.src = url;
+  });
 }
 
 /* ====================== RIWAYAT ====================== */
@@ -423,7 +541,7 @@ function saveRecord(silent = false) {
     total: last.r.total, gross: last.r.gross, si: last.r.si, by: user?.email || "" };
   const arr = localHist().filter(x => x.id !== rec.id); arr.unshift(rec); setLocalHist(arr);
   if (cloudHist) { cloudHist = cloudHist.filter(x => x.id !== rec.id); cloudHist.unshift(rec); }
-  if (fb && user) fb.F.setDoc(fb.F.doc(fb.db, "quotes", rec.id), rec).catch(e => console.warn("Simpan cloud gagal", e));
+  if (fb && user) fb.F.setDoc(fb.F.doc(fb.db, "quotes", rec.id), rec).catch(() => {});
   updateSaveState();
   if (!silent) toast("Perhitungan tersimpan ke riwayat.", "ok");
   if (!$("#tab-hist").hidden) renderHist();
@@ -435,7 +553,7 @@ async function loadHistory() {
       const { collection, query, orderBy, limit, getDocs } = fb.F;
       const snap = await getDocs(query(collection(fb.db, "quotes"), orderBy("savedAt", "desc"), limit(300)));
       cloudHist = snap.docs.map(d => d.data());
-    } catch (e) { console.warn(e); cloudHist = null; }
+    } catch { cloudHist = null; }
   } else cloudHist = null;
   renderHist();
 }
@@ -449,7 +567,7 @@ function renderHist() {
   const all = histItems();
   const rows = all.filter(r => !q || `${r.inp.name} ${r.inp.plate} ${r.ref} ${r.inp.brand} ${r.inp.model}`.toLowerCase().includes(q));
   $("#hCount").textContent = `${all.length} data`;
-  $("#hSrc").textContent = cloudHist ? "Tersinkron ke cloud (akun admin)" : "Tersimpan di perangkat ini · login admin untuk sinkron antar perangkat";
+  $("#hSrc").textContent = cloudHist ? "Tersimpan dan tersinkron di semua perangkat Anda" : "Tersimpan di perangkat ini";
   $("#hList").innerHTML = rows.map(r => {
     const d = new Date(r.savedAt).toLocaleString("id-ID", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
     const veh = `${r.inp.brand || ""} ${r.inp.model || ""}`.trim();
@@ -470,7 +588,7 @@ async function deleteRecord(id) {
   const r = histItems().find(x => x.id === id); if (!r || !confirm(`Hapus perhitungan ${r.inp.name || r.ref}?`)) return;
   setLocalHist(localHist().filter(x => x.id !== id));
   if (cloudHist) cloudHist = cloudHist.filter(x => x.id !== id);
-  if (fb && user) { try { await fb.F.deleteDoc(fb.F.doc(fb.db, "quotes", id)); } catch (e) { toast("Gagal menghapus di cloud: " + e.message, "err"); } }
+  if (fb && user) { try { await fb.F.deleteDoc(fb.F.doc(fb.db, "quotes", id)); } catch { toast("Gagal menghapus. Coba lagi.", "err"); } }
   if (currentId === id) { currentId = null; currentRef = null; updateSaveState(); }
   renderHist(); toast("Dihapus.");
 }
@@ -501,6 +619,13 @@ function buildPdf(ref) {
   d.setFont("helvetica", "normal"); d.setFontSize(8.5);
   d.text([c.name, c.address].filter(Boolean).join("  ·  "), M + 18, 17);
   d.text([c.phone && "Telp/WA " + c.phone, c.email].filter(Boolean).join("  ·  "), M + 18, 21.5);
+  const K = S.contact;
+  if (K.name || K.wa) {
+    d.setFont("helvetica", "bold"); d.setFontSize(8.5); d.text("HUBUNGI", W - M, 11, { align: "right" });
+    d.setFont("helvetica", "normal"); d.setFontSize(9.5);
+    if (K.name) d.text(K.name, W - M, 16, { align: "right" });
+    if (K.wa) d.text("WA " + K.wa, W - M, 21, { align: "right" });
+  }
 
   d.setTextColor(20); d.setFont("helvetica", "bold"); d.setFontSize(13);
   d.text("QUOTATION SLIP", W / 2, 35, { align: "center" });
@@ -555,7 +680,7 @@ function buildPdf(ref) {
     styles: { fontSize: 8.6, cellPadding: 0.9 }, columnStyles: { 1: { cellWidth: 12 }, 2: { halign: "right", cellWidth: 40 } } });
 
   y = section("RISIKO SENDIRI (DEDUCTIBLE)", next(2));
-  kv(lines(S.texts.deductible).map(t => ["", "-", t]), y);
+  kv(lines(TX(inp.func).deductible).map(t => ["", "-", t]), y);
 
   y = section("PERHITUNGAN PREMI", next(2));
   const cs = showF ? 2 : 1;
@@ -586,9 +711,9 @@ function buildPdf(ref) {
     row("MASA BERLAKU", `Penawaran berlaku ${S.validityDays} hari sejak tanggal penawaran`)
   ], y);
   y = section("KLAUSULA & WARRANTY", next(2));
-  kv(lines(S.texts.clauses).map((t, i) => ["", `${i + 1}.`, t]), y);
+  kv(lines(TX(inp.func).clauses).map((t, i) => ["", `${i + 1}.`, t]), y);
   y = section("SUBJECTIVITY", next(2));
-  kv(lines(S.texts.subjectivity).map(t => ["", "-", t]), y);
+  kv(lines(TX(inp.func).subjectivity).map(t => ["", "-", t]), y);
   y = section("DISCLAIMER", next(2));
   d.autoTable({ startY: y, body: [[S.texts.disclaimer]], theme: "plain", margin: { left: M, right: M }, styles: { fontSize: 8.2, cellPadding: 1, halign: "justify" } });
 
@@ -599,6 +724,7 @@ function buildPdf(ref) {
   d.setFont("helvetica", "bold"); d.text(c.name || c.brand || "", W - M, y + 5, { align: "right" });
   d.setFont("helvetica", "normal"); d.line(W - M - 55, y + 25, W - M, y + 25);
   d.text(c.signer || "Petugas Berwenang", W - M, y + 30, { align: "right" });
+  if (K.name || K.wa) { d.setFontSize(8.5); d.setTextColor(90); d.text(`Hubungi: ${[K.name, K.wa && "WA " + K.wa].filter(Boolean).join(" · ")}`, M, y + 30); d.setTextColor(25); }
 
   const n = d.internal.getNumberOfPages();
   for (let i = 1; i <= n; i++) {
@@ -641,8 +767,8 @@ async function doWa() {
   toast(win ? "PDF diunduh — lampirkan file tersebut di chat WhatsApp." : "Izinkan pop-up untuk membuka WhatsApp. PDF sudah diunduh.", "", 6000);
 }
 
-/* ====================== FIREBASE ====================== */
-function setNet(on, msg) { const el = $("#netStatus"); el.textContent = msg; el.className = "pill " + (on ? "on" : "off"); }
+/* ====================== KONEKSI DATA ====================== */
+function setNet(on, msg) { const el = $("#netStatus"); el.hidden = on || !msg; el.textContent = msg || ""; el.className = "pill off"; }
 async function initFirebase() {
   try {
     const base = `https://www.gstatic.com/firebasejs/${FB_VER}/`;
@@ -654,24 +780,25 @@ async function initFirebase() {
       if (u) LS.set("ai_authed", u.email); else { try { localStorage.removeItem("ai_authed"); } catch {} }
       applyTabs(); renderAdminGate();
       if (!$("#tab-hist").hidden) loadHistory(); else cloudHist = null;
-      if (u) syncLocalToCloud();
+      if (u) { syncLocalToCloud(); startInbox(); } else stopInbox();
     });
     await loadRemote();
-    setNet(true, "Online");
+    setNet(true, "");
   } catch (e) {
-    console.error(e); setNet(false, navigator.onLine ? "Offline · pengaturan lokal" : "Offline"); renderAdminGate();
+    setNet(false, navigator.onLine ? "" : "Offline"); renderAdminGate();
   }
 }
 async function loadRemote() {
   const { doc, getDoc } = fb.F;
-  const [s, v] = await Promise.all([getDoc(doc(fb.db, "config", "settings")), getDoc(doc(fb.db, "config", "vehicles"))]);
-  if (s.exists()) { S = mergeDeep(clone(DEFAULT_SETTINGS), s.data()); delete S.updatedAt; delete S.updatedBy; LS.set("ai_settings", S); }
+  const [s, v, hr] = await Promise.all([getDoc(doc(fb.db, "config", "settings")), getDoc(doc(fb.db, "config", "vehicles")), getDoc(doc(fb.db, "config", "hero")).catch(() => null)]);
+  if (s.exists()) { S = normalizeSettings(s.data()); LS.set("ai_settings", S); }
+  if (hr && hr.exists() && !heroDirty) { HERO_IMG = hr.data().image || ""; LS.set("ai_hero", HERO_IMG); }
   if (v.exists() && Array.isArray(v.data().list) && v.data().list.length) { VEH = v.data().list; LS.set("ai_vehicles", VEH); }
   applySettingsToUI();
 }
 async function syncLocalToCloud() {
   const items = localHist(); if (!items.length || !fb || !user) return;
-  try { await Promise.all(items.map(r => fb.F.setDoc(fb.F.doc(fb.db, "quotes", r.id), r))); } catch (e) { console.warn("Sinkron riwayat gagal", e); }
+  try { await Promise.all(items.map(r => fb.F.setDoc(fb.F.doc(fb.db, "quotes", r.id), r))); } catch {}
 }
 
 /* ====================== ADMIN ====================== */
@@ -683,16 +810,38 @@ function renderAdminGate() {
   if (fb && user && showAdmin) { $("#adminWho").textContent = "Masuk sebagai " + user.email; if (!fillAdmin.done) { fillAdmin(); fillAdmin.done = true; } }
   if (!user) fillAdmin.done = false;
 }
+let adminFunc = "PRIBADI", textFunc = "PRIBADI";
+const AT = () => S.tiersByFunc[adminFunc];
 function tierRows(key) {
-  const rows = [...S.tiers[key]].sort((a, b) => (a.max ?? Infinity) - (b.max ?? Infinity));
-  S.tiers[key] = rows;
-  $("#tier-" + key).innerHTML = rows.map((t, i) => `<tr>
+  const tb = $("#tier-" + key);
+  if (!AT()[key]) { tb.innerHTML = ""; return; }
+  const rows = [...AT()[key]].sort((a, b) => (a.max ?? Infinity) - (b.max ?? Infinity));
+  AT()[key] = rows;
+  tb.innerHTML = rows.map((t, i) => `<tr>
     <td><input type="number" step="1" min="0" data-tier="${key}" data-i="${i}" data-f="max" value="${t.max == null ? "" : t.max / 1e6}" placeholder="ke atas"></td>
     <td><input type="number" step="0.001" min="0" data-tier="${key}" data-i="${i}" data-f="rate" value="${t.rate}"></td>
     <td><button class="btn danger sm" data-deltier="${key}" data-i="${i}">✕</button></td></tr>`).join("");
 }
-function fillAdmin() {
+function renderRateFunc() {
+  $$("[data-rfunc]").forEach(b => b.classList.toggle("active", b.dataset.rfunc === adminFunc));
+  $$(".rateFuncName").forEach(e => e.textContent = funcLabel(adminFunc));
+  $("#tloCard").hidden = !AT().tlo; $("#btnCopyTier").hidden = adminFunc === "PRIBADI";
   tierRows("comprehensive"); tierRows("tlo");
+}
+function readTexts() {
+  S.textsByFunc[textFunc] = { deductible: $("#aDeduct").value.trim(), clauses: $("#aClauses").value.trim(), subjectivity: $("#aSubj").value.trim() };
+}
+function renderTextFunc() {
+  $$("[data-tfunc]").forEach(b => b.classList.toggle("active", b.dataset.tfunc === textFunc));
+  $$(".textFuncName").forEach(e => e.textContent = funcLabel(textFunc));
+  $("#btnCopyText").hidden = textFunc === "PRIBADI";
+  const t = TX(textFunc); $("#aDeduct").value = t.deductible; $("#aClauses").value = t.clauses; $("#aSubj").value = t.subjectivity;
+}
+function renderHeroAdmin() {
+  $("#hPrevWrap").hidden = !HERO_IMG; if (HERO_IMG) $("#hPreview").src = HERO_IMG;
+}
+function fillAdmin() {
+  renderRateFunc(); renderTextFunc();
   $("#aAgeOn").value = S.ageLoading.enabled ? "1" : "0"; $("#aAgeAfter").value = S.ageLoading.afterYears; $("#aAgePct").value = S.ageLoading.pctPerYear;
   $("#extRates").innerHTML = EXT_DEFS.map(e => `<div class="f"><label>${esc(e.label)} (%)</label><input type="number" step="0.001" min="0" data-ext="${e.key}" value="${S.ext[e.key]}"></div>`).join("");
   $("#aTjhRate").value = S.tjhRate; $("#aPaDRate").value = S.paDriverRate; $("#aPaPRate").value = S.paPassRate;
@@ -702,16 +851,18 @@ function fillAdmin() {
   $("#aRegion").value = S.region; $("#aValid").value = S.validityDays; $("#aPayTerm").value = S.paymentTerm;
   $("#dispExt").innerHTML = EXT_DEFS.map(e => `<label class="chk"><input type="checkbox" data-dispext="${e.key}" ${D().ext[e.key] !== false ? "checked" : ""}><span class="t">Perluasan: ${esc(e.label)}</span></label>`).join("");
   $$("[data-disp]").forEach(i => i.checked = !!D()[i.dataset.disp]);
-  $("#aDeduct").value = S.texts.deductible; $("#aClauses").value = S.texts.clauses; $("#aSubj").value = S.texts.subjectivity; $("#aDisc").value = S.texts.disclaimer;
+  $("#aDisc").value = S.texts.disclaimer;
+  $("#kName").value = S.contact.name; $("#kWa").value = S.contact.wa;
+  $("#hTitle").value = S.hero.title; $("#hSub").value = S.hero.subtitle; $("#hStyle").value = S.hero.style; renderHeroAdmin();
   const c = S.company;
   $("#cBrand").value = c.brand; $("#cLogo").value = c.logo; $("#cName").value = c.name; $("#cAddr").value = c.address;
   $("#cPhone").value = c.phone; $("#cEmail").value = c.email; $("#cCity").value = c.city; $("#cSigner").value = c.signer; $("#cPrefix").value = c.prefix;
   renderVeh();
 }
 function readTiers() {
-  for (const key of ["comprehensive", "tlo"]) {
+  for (const key of Object.keys(AT())) {
     $$(`[data-tier="${key}"]`).forEach(inp => {
-      const t = S.tiers[key][+inp.dataset.i]; if (!t) return;
+      const t = AT()[key][+inp.dataset.i]; if (!t) return;
       if (inp.dataset.f === "max") t.max = inp.value === "" ? null : Math.round(+inp.value * 1e6);
       else t.rate = +inp.value || 0;
     });
@@ -720,12 +871,12 @@ function readTiers() {
 const parseLimits = s => [...new Set(String(s).split(/[,;\s]+/).map(x => +x.replace(",", ".")).filter(x => x > 0).map(x => Math.round(x * 1e6)))].sort((a, b) => a - b);
 function collectAdmin() {
   readTiers();
-  for (const key of ["comprehensive", "tlo"]) {
-    const t = S.tiers[key];
-    if (!t.length) throw new Error(`Tabel rate ${key.toUpperCase()} kosong.`);
-    if (t.filter(x => x.max == null).length > 1) throw new Error(`Tabel ${key.toUpperCase()}: hanya satu baris boleh "ke atas".`);
+  for (const f of FUNCS) for (const key of Object.keys(S.tiersByFunc[f.key])) {
+    const t = S.tiersByFunc[f.key][key], nm = `${COVER_LABEL[key]} — ${f.label}`;
+    if (!t.length) throw new Error(`Tabel rate ${nm} kosong.`);
+    if (t.filter(x => x.max == null).length > 1) throw new Error(`Tabel ${nm}: hanya satu baris boleh "ke atas".`);
     if (!t.some(x => x.max == null)) t.push({ max: null, rate: t[t.length - 1].rate });
-    S.tiers[key] = t.sort((a, b) => (a.max ?? Infinity) - (b.max ?? Infinity));
+    S.tiersByFunc[f.key][key] = t.sort((a, b) => (a.max ?? Infinity) - (b.max ?? Infinity));
   }
   S.ageLoading = { enabled: $("#aAgeOn").value === "1", afterYears: +$("#aAgeAfter").value || 0, pctPerYear: +$("#aAgePct").value || 0 };
   $$("[data-ext]").forEach(i => S.ext[i.dataset.ext] = +i.value || 0);
@@ -737,7 +888,9 @@ function collectAdmin() {
   S.region = $("#aRegion").value.trim() || "Wilayah 1"; S.validityDays = +$("#aValid").value || 14; S.paymentTerm = $("#aPayTerm").value.trim();
   $$("[data-disp]").forEach(i => S.display[i.dataset.disp] = i.checked);
   $$("[data-dispext]").forEach(i => S.display.ext[i.dataset.dispext] = i.checked);
-  S.texts = { deductible: $("#aDeduct").value.trim(), clauses: $("#aClauses").value.trim(), subjectivity: $("#aSubj").value.trim(), disclaimer: $("#aDisc").value.trim() };
+  readTexts(); S.texts = { disclaimer: $("#aDisc").value.trim() };
+  S.contact = { name: $("#kName").value.trim(), wa: $("#kWa").value.trim() };
+  S.hero = { style: $("#hStyle").value, title: $("#hTitle").value.trim() || DEFAULT_SETTINGS.hero.title, subtitle: $("#hSub").value.trim() || DEFAULT_SETTINGS.hero.subtitle };
   S.company = { brand: $("#cBrand").value.trim(), logo: $("#cLogo").value.trim().toUpperCase(), name: $("#cName").value.trim(), address: $("#cAddr").value.trim(),
     phone: $("#cPhone").value.trim(), email: $("#cEmail").value.trim(), city: $("#cCity").value.trim(), signer: $("#cSigner").value.trim(), prefix: $("#cPrefix").value.trim() || "QS" };
 }
@@ -749,11 +902,11 @@ async function saveAll() {
     const meta = { updatedAt: serverTimestamp(), updatedBy: user.email };
     await setDoc(doc(fb.db, "config", "settings"), { ...clone(S), ...meta });
     await setDoc(doc(fb.db, "config", "vehicles"), { list: VEH, ...meta });
+    if (heroDirty) { await setDoc(doc(fb.db, "config", "hero"), { image: HERO_IMG, ...meta }); heroDirty = false; LS.set("ai_hero", HERO_IMG); }
     LS.set("ai_settings", S); LS.set("ai_vehicles", VEH);
     applySettingsToUI(); fillAdmin(); showTab("admin"); toast("Pengaturan tersimpan.", "ok");
   } catch (e) {
-    console.error(e);
-    toast(e.code === "permission-denied" ? "Akses ditolak — akun ini belum terdaftar sebagai admin di Firestore Rules." : "Gagal menyimpan: " + e.message, "err", 6000);
+    toast(e.code === "permission-denied" ? "Akses ditolak. Akun ini tidak memiliki izin admin." : "Gagal menyimpan. Periksa koneksi lalu coba lagi.", "err", 6000);
   } finally { btn.disabled = false; btn.textContent = "💾 Simpan Pengaturan"; }
 }
 function renderVeh() {
@@ -778,7 +931,7 @@ const authMsg = e => ({
   "auth/weak-password": "Password minimal 6 karakter.", "auth/email-already-in-use": "Email sudah dipakai akun lain.",
   "auth/invalid-email": "Format email tidak valid.", "auth/requires-recent-login": "Silakan login ulang lalu coba lagi.",
   "auth/network-request-failed": "Koneksi bermasalah."
-}[e.code] || e.message);
+}[e.code] || "Terjadi kesalahan. Coba lagi.");
 
 /* ====================== PWA ====================== */
 let deferredPrompt = null, swWaiting = null, reloading = false;
@@ -794,7 +947,7 @@ function initPwa() {
         w && w.addEventListener("statechange", () => { if (w.state === "installed" && navigator.serviceWorker.controller) showUpdate(w); });
       });
       setInterval(() => reg.update().catch(() => {}), 60 * 60 * 1000);
-    }).catch(e => console.warn("Service worker gagal", e));
+    }).catch(() => {});
     navigator.serviceWorker.addEventListener("controllerchange", () => { if (reloading) { skipUnload = true; location.reload(); } });
   }
   window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); deferredPrompt = e; if (!isStandalone()) $("#btnInstall").hidden = false; });
@@ -806,7 +959,7 @@ function initPwa() {
   });
   $("#iosClose").addEventListener("click", () => $("#iosModal").hidden = true);
   $("#btnUpd").addEventListener("click", () => { reloading = true; saveDrafts(); $("#updBar").hidden = true; swWaiting && swWaiting.postMessage("SKIP_WAITING"); });
-  window.addEventListener("online", () => { if (fb) { setNet(true, "Online"); loadRemote().catch(() => {}); } else initFirebase(); });
+  window.addEventListener("online", () => { if (fb) { setNet(true, ""); loadRemote().catch(() => {}); } else initFirebase(); });
   window.addEventListener("offline", () => setNet(false, "Offline"));
   initExitGuard();
 }
@@ -869,7 +1022,7 @@ function bind() {
   $("#qToFull").addEventListener("click", () => {
     const q = readQuick();
     resetForm(); showTab("calc");
-    setSel($("#fCover"), q.cover); setSel($("#fYear"), q.year);
+    setSel($("#fFunc"), q.func); renderCoverSelect($("#fCover"), $("#fFunc").value); setSel($("#fCover"), q.cover); setSel($("#fYear"), q.year);
     $("#fPrice").value = q.price ? fmt(q.price) : ""; $("#fAcc").value = q.acc ? fmt(q.acc) : "";
     if (S.paPassPerSeat) $("#fSeats").value = q.seats || 7;
     EXT_DEFS.forEach(e => { const el = document.getElementById("ext_" + e.key); if (el) el.checked = q.ext[e.key]; });
@@ -923,12 +1076,12 @@ function bind() {
 
   document.addEventListener("click", e => {
     const add = e.target.closest("[data-addtier]");
-    if (add) { readTiers(); const k = add.dataset.addtier; const t = S.tiers[k]; const open = t.find(x => x.max == null);
+    if (add) { readTiers(); const k = add.dataset.addtier; const t = AT()[k]; const open = t.find(x => x.max == null);
       const lastMax = Math.max(0, ...t.filter(x => x.max != null).map(x => x.max));
       if (open) t.splice(t.indexOf(open), 0, { max: lastMax + 100e6, rate: open.rate }); else t.push({ max: null, rate: 1 });
       tierRows(k); }
     const del = e.target.closest("[data-deltier]");
-    if (del) { readTiers(); const k = del.dataset.deltier; if (S.tiers[k].length <= 1) return toast("Minimal satu baris.", "err"); S.tiers[k].splice(+del.dataset.i, 1); tierRows(k); }
+    if (del) { readTiers(); const k = del.dataset.deltier; if (AT()[k].length <= 1) return toast("Minimal satu baris.", "err"); AT()[k].splice(+del.dataset.i, 1); tierRows(k); }
     const vd = e.target.closest("[data-vdel]");
     if (vd) { const v = VEH[+vd.dataset.vdel]; if (confirm(`Hapus ${v.brand} ${v.model}?`)) { VEH.splice(+vd.dataset.vdel, 1); renderVeh(); renderBrands(); } }
   });
@@ -962,8 +1115,36 @@ function bind() {
   });
 }
 
+function bindV12() {
+  [["#fFunc", "#fCover", () => recalc()], ["#qFunc", "#qCover", () => recalcQuick()]].forEach(([fs, cs, fn]) =>
+    $(fs).addEventListener("change", () => { if (renderCoverSelect($(cs), $(fs).value)) toast("TLO tidak tersedia untuk kendaraan komersial. Jaminan diganti ke Comprehensive."); fn(); }));
+  document.addEventListener("submit", e => { const f = e.target.closest("form[data-ask]"); if (f) { e.preventDefault(); sendQuestion(f); } });
+  document.addEventListener("click", async e => {
+    const sc = e.target.closest("[data-scroll]"); if (sc) { const t = $(sc.dataset.scroll); t && t.scrollIntoView({ behavior: "smooth", block: "start" }); }
+    const rf = e.target.closest("[data-rfunc]"); if (rf) { readTiers(); adminFunc = rf.dataset.rfunc; renderRateFunc(); }
+    const tf = e.target.closest("[data-tfunc]"); if (tf) { readTexts(); textFunc = tf.dataset.tfunc; renderTextFunc(); }
+    if (e.target.closest("#btnCopyTier") && confirm(`Salin tabel rate Pribadi ke ${funcLabel(adminFunc)}?`)) {
+      Object.keys(AT()).forEach(k => AT()[k] = clone(S.tiersByFunc.PRIBADI[k])); renderRateFunc(); toast("Tabel disalin. Klik Simpan Pengaturan untuk menyimpan.");
+    }
+    if (e.target.closest("#btnCopyText") && confirm(`Salin teks polis Pribadi ke ${funcLabel(textFunc)}?`)) {
+      S.textsByFunc[textFunc] = clone(S.textsByFunc.PRIBADI); renderTextFunc(); toast("Teks disalin. Klik Simpan Pengaturan untuk menyimpan.");
+    }
+    const rp_ = e.target.closest("[data-reply]"); if (rp_) setInboxStatus(rp_.dataset.reply, "dibalas");
+    const mk = e.target.closest("[data-mark]"); if (mk) { const x = INBOX.find(i => i.id === mk.dataset.mark); if (x) setInboxStatus(x.id, x.status === "dibalas" ? "baru" : "dibalas"); }
+    const dl = e.target.closest("[data-idel]"); if (dl && confirm("Hapus pesan ini?")) { try { await fb.F.deleteDoc(fb.F.doc(fb.db, "inbox", dl.dataset.idel)); } catch { toast("Gagal menghapus. Coba lagi.", "err"); } }
+  });
+  $("#inboxFilter").addEventListener("change", renderInbox);
+  $("#inboxSearch").addEventListener("input", renderInbox);
+  $("#hFile").addEventListener("change", async e => {
+    const file = e.target.files[0]; if (!file) return;
+    try { HERO_IMG = await compressImage(file); heroDirty = true; $("#hStyle").value = "photo"; renderHeroAdmin(); toast("Foto siap. Klik Simpan Pengaturan untuk menerapkan."); }
+    catch (er) { toast(er.message, "err"); } finally { e.target.value = ""; }
+  });
+  $("#btnHeroDel").addEventListener("click", () => { HERO_IMG = ""; heroDirty = true; $("#hStyle").value = "pattern"; renderHeroAdmin(); toast("Foto dihapus. Klik Simpan Pengaturan untuk menerapkan."); });
+}
+
 /* ====================== START ====================== */
 renderYearSelect($("#fYear")); renderYearSelect($("#qYear")); setDefaultDates();
 wantedTab = new URLSearchParams(location.search).get("tab") || LS.get("ai_tab") || "quick";
-bind(); applySettingsToUI(); restoreDrafts(); applyTabs();
+bind(); bindV12(); applySettingsToUI(); restoreDrafts(); applyTabs();
 initPwa(); initFirebase();

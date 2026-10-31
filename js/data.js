@@ -1,5 +1,5 @@
 /* Pengaturan bawaan (rate, teks polis, tampilan) & daftar kendaraan bawaan.
-   Nilai ini dipakai sampai admin menyimpan pengaturan ke Firestore. */
+   Nilai ini dipakai sampai admin menyimpan pengaturan. */
 export const EXT_DEFS = [
   { key: "flood", label: "Angin Topan, Badai, Hujan Es, Banjir & Tanah Longsor" },
   { key: "eq", label: "Gempa Bumi, Tsunami & Letusan Gunung Berapi" },
@@ -162,3 +162,24 @@ function parseVehicles(raw) {
   return out;
 }
 export const DEFAULT_VEHICLES = parseVehicles(VEHICLE_RAW);
+
+/* Fungsi kendaraan: tiap fungsi punya tabel rate kasko & teks polis sendiri. Komersial tanpa TLO. */
+export const FUNCS = [{ key: "PRIBADI", label: "Pribadi" }, { key: "DINAS", label: "Dinas" }, { key: "KOMERSIAL", label: "Komersial" }];
+export const FUNC_COVERS = { PRIBADI: ["comprehensive", "tlo"], DINAS: ["comprehensive", "tlo"], KOMERSIAL: ["comprehensive"] };
+(() => {
+  const S = DEFAULT_SETTINGS, c = o => JSON.parse(JSON.stringify(o));
+  S.tiersByFunc = {}; S.textsByFunc = {};
+  FUNCS.forEach(f => {
+    S.tiersByFunc[f.key] = {};
+    FUNC_COVERS[f.key].forEach(cv => S.tiersByFunc[f.key][cv] = c(S.tiers[cv]));
+    S.textsByFunc[f.key] = { deductible: S.texts.deductible, clauses: S.texts.clauses, subjectivity: S.texts.subjectivity };
+  });
+  delete S.tiers;
+  S.texts = { disclaimer: S.texts.disclaimer };
+  S.contact = { name: "", wa: "" };
+  S.hero = {
+    style: "pattern",
+    title: "Perlindungan Menyeluruh untuk Kendaraan Anda",
+    subtitle: "Asuransi kendaraan dengan rincian premi yang jelas, pilihan jaminan lengkap, dan pendampingan dari pengajuan hingga polis terbit."
+  };
+})();
