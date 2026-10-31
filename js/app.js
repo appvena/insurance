@@ -1,4 +1,4 @@
-/* Vehicle Protection — v1.3 · Copyright © SRISP 2026 */
+/* Vehicle Protection — v1.4 · Copyright © SRISP 2026 */
 import { firebaseConfig, FB_VER, APP_VERSION, COPYRIGHT } from "./config.js";
 import { EXT_DEFS, COVER_LABEL, DEFAULT_SETTINGS, DEFAULT_VEHICLES, FUNCS, FUNC_COVERS } from "./data.js";
 
@@ -317,7 +317,7 @@ function resetForm() {
 /* ====================== TAMPILAN (dari pengaturan) ====================== */
 function applySettingsToUI() {
   const keepC = last ? last.inp : null, keepQ = lastQuick ? lastQuick.inp : null;
-  $("#hdrBrand").textContent = S.company.brand || "ALEX INSURANCE";
+  $("#hdrBrand").textContent = S.company.brand || "ALEX INSURANCE"; renderHdrLogo();
   $("#fRegion").value = S.region;
   const discOn = +S.maxDiscount > 0;
   $("#discWrap").hidden = !discOn; $("#qDiscWrap").hidden = !discOn;
@@ -366,6 +366,11 @@ function showTab(name, auto = false) {
 
 /* ====================== BERANDA, HUBUNGI SAYA & TANYA ADMIN ====================== */
 let HERO_IMG = LS.get("ai_hero") || "", heroDirty = false;
+let LOGO_IMG = LS.get("ai_logo") || "", logoDirty = false, WHEEL_HTML = null;
+function renderHdrLogo() {
+  const el = $("#hdrLogo"); if (WHEEL_HTML === null) WHEEL_HTML = el.innerHTML;
+  el.innerHTML = LOGO_IMG ? `<img src="${LOGO_IMG}" alt="">` : WHEEL_HTML;
+}
 const IC = {
   shield: '<path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/><path d="m9 12 2 2 4-4"/>',
   car: '<path d="M5 17h14M6 17v2M18 17v2"/><path d="M3 13l2-5a2 2 0 0 1 2-1h10a2 2 0 0 1 2 1l2 5v4H3z"/><circle cx="7.5" cy="14" r="1"/><circle cx="16.5" cy="14" r="1"/>',
@@ -620,17 +625,35 @@ function validate(inp) {
   if (period(inp.start, inp.end).factor <= 0) return "Tanggal akhir harus setelah tanggal mulai.";
   return null;
 }
+const PDF_LIBS = ["https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js", "https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"];
+let pdfLibP = null;
+function loadPdfLibs() {
+  if (window.jspdf && window.jspdf.jsPDF && window.jspdf.jsPDF.API.autoTable) return Promise.resolve();
+  if (!pdfLibP) pdfLibP = PDF_LIBS.reduce((p, src) => p.then(() => new Promise((res, rej) => {
+    const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = rej; document.head.appendChild(s);
+  })), Promise.resolve()).catch(e => { pdfLibP = null; throw e; });
+  return pdfLibP;
+}
+const pdfReady = () => !!(window.jspdf && window.jspdf.jsPDF && window.jspdf.jsPDF.API.autoTable);
 function buildPdf(ref) {
-  if (!window.jspdf || !window.jspdf.jsPDF) throw new Error("Library PDF belum termuat. Sambungkan internet sekali agar tersimpan untuk offline.");
+  if (!pdfReady()) throw new Error("Penyiapan PDF belum selesai. Periksa koneksi internet lalu coba lagi.");
   const { inp, r } = last;
   const { jsPDF } = window.jspdf; const d = new jsPDF({ unit: "mm", format: "a4" });
-  const W = 210, M = 14, NAVY = [11, 42, 91], AMBER = [245, 166, 35];
+  const W = 210, M = 14, NAVY = [31, 60, 136], AMBER = [242, 169, 59];
   const c = S.company, showF = D().pdfFormula;
 
   d.setFillColor(...NAVY); d.rect(0, 0, W, 26, "F");
-  d.setFillColor(...AMBER); d.roundedRect(M, 6, 14, 14, 2, 2, "F");
-  d.setTextColor(...NAVY); d.setFont("helvetica", "bold"); d.setFontSize(10);
-  d.text((c.logo || "AI").slice(0, 3), M + 7, 14.6, { align: "center" });
+  if (LOGO_IMG) {
+    d.setFillColor(255, 255, 255); d.roundedRect(M, 5, 16, 16, 2, 2, "F");
+    try {
+      const p = d.getImageProperties(LOGO_IMG), k = Math.min(14 / p.width, 14 / p.height), w = p.width * k, hh = p.height * k;
+      d.addImage(LOGO_IMG, p.fileType || "PNG", M + 1 + (14 - w) / 2, 6 + (14 - hh) / 2, w, hh);
+    } catch {}
+  } else {
+    d.setFillColor(...AMBER); d.roundedRect(M, 6, 14, 14, 2, 2, "F");
+    d.setTextColor(...NAVY); d.setFont("helvetica", "bold"); d.setFontSize(10);
+    d.text((c.logo || "AI").slice(0, 3), M + 7, 14.6, { align: "center" });
+  }
   d.setTextColor(255); d.setFontSize(15); d.text(c.brand || "", M + 18, 12);
   d.setFont("helvetica", "normal"); d.setFontSize(8.5);
   d.text([c.name, c.address].filter(Boolean).join("  ·  "), M + 18, 17);
@@ -769,8 +792,12 @@ function prepare() {
   if (D().autoSave) saveRecord(true); else updateSaveState();
   return pdf;
 }
-function doPdf() { const pdf = prepare(); if (!pdf) return; download(pdf.blob, pdf.name); toast("PDF berhasil dibuat.", "ok"); }
+async function doPdf() {
+  if (!pdfReady()) { toast("Menyiapkan PDF…"); try { await loadPdfLibs(); } catch { return toast("PDF belum bisa dibuat. Periksa koneksi internet.", "err"); } }
+  const pdf = prepare(); if (!pdf) return; download(pdf.blob, pdf.name); toast("PDF berhasil dibuat.", "ok");
+}
 async function doWa() {
+  if (!pdfReady()) { toast("Menyiapkan PDF…"); try { await loadPdfLibs(); } catch { return toast("PDF belum bisa dibuat. Periksa koneksi internet.", "err"); } }
   const pdf = prepare(); if (!pdf) return;
   const text = summaryText(last.inp, last.r, "PENAWARAN ASURANSI KENDARAAN") + `\n\nNo. Ref: ${pdf.ref}\nRincian lengkap pada PDF terlampir.`;
   const file = new File([pdf.blob], pdf.name, { type: "application/pdf" });
@@ -809,6 +836,7 @@ async function loadRemote() {
   const [s, v, hr] = await Promise.all([getDoc(doc(fb.db, "config", "settings")), getDoc(doc(fb.db, "config", "vehicles")), getDoc(doc(fb.db, "config", "hero")).catch(() => null)]);
   if (s.exists()) { S = normalizeSettings(s.data()); LS.set("ai_settings", S); }
   if (hr && hr.exists() && !heroDirty) { HERO_IMG = hr.data().image || ""; LS.set("ai_hero", HERO_IMG); }
+  try { const lg = await getDoc(doc(fb.db, "config", "logo")); if (lg.exists() && !logoDirty) { LOGO_IMG = lg.data().image || ""; LS.set("ai_logo", LOGO_IMG); } } catch {}
   if (v.exists() && Array.isArray(v.data().list) && v.data().list.length) { VEH = v.data().list; LS.set("ai_vehicles", VEH); }
   applySettingsToUI();
 }
@@ -823,8 +851,9 @@ function renderAdminGate() {
   $("#fbDown").hidden = !!fb || !showAdmin;
   $("#loginBox").hidden = !fb || !!user;
   $("#adminBox").hidden = !fb || !user;
-  if (fb && user && showAdmin) { $("#adminWho").textContent = "Masuk sebagai " + user.email; if (!fillAdmin.done) { fillAdmin(); fillAdmin.done = true; } }
+  if (fb && user && showAdmin) { $("#adminWho").textContent = user.email; $("#admAv").textContent = (user.email[0] || "A").toUpperCase(); if (!isMobile() && !$("#adm").classList.contains("open")) openAdmPane(admPane); if (!fillAdmin.done) { fillAdmin(); fillAdmin.done = true; } }
   if (!user) fillAdmin.done = false;
+  updateSaveBar();
 }
 let adminFunc = "PRIBADI", textFunc = "PRIBADI";
 const AT = () => S.tiersByFunc[adminFunc];
@@ -878,6 +907,24 @@ function readCx() {
       desc: val("desc").value.trim(), clause: val("clause").value.trim(), funcs, active: val("active").checked };
   });
 }
+function renderLogoAdmin() {
+  $("#lgPrevWrap").hidden = !LOGO_IMG; if (LOGO_IMG) $("#lgPreview").src = LOGO_IMG;
+}
+function compressLogo(file) {
+  return new Promise((res, rej) => {
+    const img = new Image(), url = URL.createObjectURL(file);
+    img.onload = () => {
+      const k = Math.min(1, 512 / Math.max(img.width, img.height)), cv = document.createElement("canvas");
+      cv.width = Math.round(img.width * k); cv.height = Math.round(img.height * k);
+      cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height); URL.revokeObjectURL(url);
+      let out = cv.toDataURL("image/png");
+      if (out.length > 350000) { const c2 = document.createElement("canvas"); c2.width = cv.width; c2.height = cv.height; const x = c2.getContext("2d"); x.fillStyle = "#fff"; x.fillRect(0, 0, c2.width, c2.height); x.drawImage(cv, 0, 0); out = c2.toDataURL("image/jpeg", 0.85); }
+      out.length > 600000 ? rej(new Error("Logo terlalu besar.")) : res(out);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); rej(new Error("File bukan gambar yang valid.")); };
+    img.src = url;
+  });
+}
 function renderHeroAdmin() {
   $("#hPrevWrap").hidden = !HERO_IMG; if (HERO_IMG) $("#hPreview").src = HERO_IMG;
 }
@@ -894,6 +941,7 @@ function fillAdmin() {
   $$("[data-disp]").forEach(i => i.checked = !!D()[i.dataset.disp]);
   $("#aDisc").value = S.texts.disclaimer;
   $("#kName").value = S.contact.name; $("#kWa").value = S.contact.wa;
+  renderLogoAdmin(); $("#verNow").textContent = APP_VERSION;
   $("#hTitle").value = S.hero.title; $("#hSub").value = S.hero.subtitle; $("#hStyle").value = S.hero.style; renderHeroAdmin();
   const c = S.company;
   $("#cBrand").value = c.brand; $("#cLogo").value = c.logo; $("#cName").value = c.name; $("#cAddr").value = c.address;
@@ -946,11 +994,12 @@ async function saveAll() {
     await setDoc(doc(fb.db, "config", "settings"), { ...clone(S), ...meta });
     await setDoc(doc(fb.db, "config", "vehicles"), { list: VEH, ...meta });
     if (heroDirty) { await setDoc(doc(fb.db, "config", "hero"), { image: HERO_IMG, ...meta }); heroDirty = false; LS.set("ai_hero", HERO_IMG); }
+    if (logoDirty) { await setDoc(doc(fb.db, "config", "logo"), { image: LOGO_IMG, ...meta }); logoDirty = false; LS.set("ai_logo", LOGO_IMG); }
     LS.set("ai_settings", S); LS.set("ai_vehicles", VEH);
-    applySettingsToUI(); fillAdmin(); showTab("admin"); toast("Pengaturan tersimpan.", "ok");
+    applySettingsToUI(); fillAdmin(); setDirty(false); showTab("admin"); toast("Pengaturan tersimpan.", "ok");
   } catch (e) {
     toast(e.code === "permission-denied" ? "Akses ditolak. Akun ini tidak memiliki izin admin." : "Gagal menyimpan. Periksa koneksi lalu coba lagi.", "err", 6000);
-  } finally { btn.disabled = false; btn.textContent = "💾 Simpan Pengaturan"; }
+  } finally { btn.disabled = false; btn.textContent = "Simpan"; }
 }
 function renderVeh() {
   const q = $("#vFilter").value.trim().toLowerCase();
@@ -977,19 +1026,21 @@ const authMsg = e => ({
 }[e.code] || "Terjadi kesalahan. Coba lagi.");
 
 /* ====================== PWA ====================== */
-let deferredPrompt = null, swWaiting = null, reloading = false;
+let deferredPrompt = null, swWaiting = null, reloading = false, swReg = null;
 const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const isStandalone = () => matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
 function initPwa() {
   if (isStandalone()) document.documentElement.classList.add("standalone");
   if ("serviceWorker" in navigator && (location.protocol === "https:" || ["localhost", "127.0.0.1"].includes(location.hostname))) {
-    navigator.serviceWorker.register("sw.js").then(reg => {
+    navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then(reg => {
+      swReg = reg;
+      document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") reg.update().catch(() => {}); });
       if (reg.waiting && navigator.serviceWorker.controller) showUpdate(reg.waiting);
       reg.addEventListener("updatefound", () => {
         const w = reg.installing;
         w && w.addEventListener("statechange", () => { if (w.state === "installed" && navigator.serviceWorker.controller) showUpdate(w); });
       });
-      setInterval(() => reg.update().catch(() => {}), 60 * 60 * 1000);
+      setInterval(() => reg.update().catch(() => {}), 30 * 60 * 1000);
     }).catch(() => {});
     navigator.serviceWorker.addEventListener("controllerchange", () => { if (reloading) { skipUnload = true; location.reload(); } });
   }
@@ -1019,6 +1070,7 @@ function initExitGuard() {
     guardArmed = false;
     const open = ["#iosModal", "#exitModal"].map(id => $(id)).find(m => !m.hidden);
     if (open) { open.hidden = true; armGuard(); return; }
+    if (admPaneOpenMobile()) { closeAdmPane(); armGuard(); return; }
     $("#exitModal").hidden = false;
   });
   $("#exitNo").addEventListener("click", () => { $("#exitModal").hidden = true; armGuard(); });
@@ -1114,7 +1166,7 @@ function bind() {
     e.preventDefault(); const em = $("#lEmail").value.trim(); if (!em) return toast("Isi email dulu.", "err");
     try { await fb.A.sendPasswordResetEmail(fb.auth, em); toast("Link reset password dikirim ke " + em, "ok", 5000); } catch (er) { toast(authMsg(er), "err"); }
   });
-  $("#btnLogout").addEventListener("click", () => fb.A.signOut(fb.auth));
+  $("#btnLogout").addEventListener("click", () => { if (admDirty && !confirm("Ada perubahan yang belum disimpan. Tetap keluar?")) return; setDirty(false); fb.A.signOut(fb.auth); });
   $("#btnSave").addEventListener("click", saveAll);
 
   document.addEventListener("click", e => {
@@ -1158,6 +1210,51 @@ function bind() {
   });
 }
 
+/* ====================== ADMIN: MENU DAFTAR + HALAMAN ISI ====================== */
+const ADM_TITLES = { inbox: "Inbox", rate: "Rate kasko", ext: "Perluasan & biaya", text: "Teks polis", veh: "Kendaraan", disp: "Tampilan", front: "Halaman depan", comp: "Perusahaan", acct: "Akun" };
+const SAVE_PANES = ["rate", "ext", "text", "veh", "disp", "front", "comp"];
+let admDirty = false, admPane = "inbox";
+const isMobile = () => matchMedia("(max-width: 760px)").matches;
+const admPaneOpenMobile = () => !$("#tab-admin").hidden && !$("#adminBox").hidden && $("#adm").classList.contains("open") && isMobile();
+function setDirty(v) { admDirty = v; updateSaveBar(); }
+function updateSaveBar() {
+  const bar = $("#saveBar"), open = $("#adm").classList.contains("open") || !isMobile();
+  bar.hidden = $("#adminBox").hidden || !(admDirty || (open && SAVE_PANES.includes(admPane)));
+  bar.classList.toggle("dirty", admDirty);
+  $("#saveTxt").textContent = admDirty ? "Ada perubahan yang belum disimpan" : "Semua perubahan tersimpan";
+}
+function openAdmPane(sub) {
+  readTiers();
+  admPane = sub;
+  $$("#subtabs .mi").forEach(x => x.classList.toggle("active", x.dataset.sub === sub));
+  $$("[data-pane]").forEach(p => p.hidden = p.dataset.pane !== sub);
+  $("#admTitle").textContent = ADM_TITLES[sub] || "";
+  $("#adm").classList.add("open"); updateSaveBar(); window.scrollTo(0, 0);
+}
+function closeAdmPane() { $("#adm").classList.remove("open"); updateSaveBar(); window.scrollTo(0, 0); }
+function bindAdmin14() {
+  $("#subtabs").addEventListener("click", e => { const b = e.target.closest("[data-sub]"); if (b) openAdmPane(b.dataset.sub); }, true);
+  $("#admBack").addEventListener("click", () => closeAdmPane());
+  const box = $("#adminBox");
+  const ignore = t => t.closest('[data-pane="inbox"],[data-pane="acct"]') || ["vFilter"].includes(t.id);
+  ["input", "change"].forEach(ev => box.addEventListener(ev, e => { if (!ignore(e.target)) setDirty(true); }));
+  box.addEventListener("click", e => {
+    if (e.target.closest("[data-addtier],[data-deltier],[data-cxdel],#btnAddCx,#btnCopyTier,#btnCopyText,#btnAddVeh,[data-vdel],#btnResetVeh,#btnHeroDel,#btnLogoDel")) setTimeout(() => setDirty(true), 0);
+  });
+  window.addEventListener("resize", updateSaveBar);
+  $("#lgFile").addEventListener("change", async e => {
+    const file = e.target.files[0]; if (!file) return;
+    try { LOGO_IMG = await compressLogo(file); logoDirty = true; renderLogoAdmin(); renderHdrLogo(); setDirty(true); toast("Logo siap. Klik Simpan untuk menerapkan."); }
+    catch (er) { toast(er.message, "err"); } finally { e.target.value = ""; }
+  });
+  $("#btnLogoDel").addEventListener("click", () => { LOGO_IMG = ""; logoDirty = true; renderLogoAdmin(); renderHdrLogo(); toast("Logo dihapus. Klik Simpan untuk menerapkan."); });
+  $("#btnCheckUpd").addEventListener("click", async () => {
+    if (!swReg) return toast("Pembaruan otomatis aktif setelah aplikasi dibuka dari alamat situsnya.");
+    toast("Memeriksa pembaruan…");
+    try { await swReg.update(); } catch {}
+    setTimeout(() => { if (swReg.waiting || swReg.installing) showUpdate(swReg.waiting || swReg.installing); else toast("Aplikasi sudah versi terbaru (" + APP_VERSION + ").", "ok"); }, 1500);
+  });
+}
 function bindV12() {
   [["#fFunc", "#fCover", "#extList", "ext_", () => recalc()], ["#qFunc", "#qCover", "#qExtList", "qext_", () => recalcQuick()]].forEach(([fs, cs, el, idp, fn]) =>
     $(fs).addEventListener("change", () => {
@@ -1201,5 +1298,6 @@ function bindV12() {
 /* ====================== START ====================== */
 renderYearSelect($("#fYear")); renderYearSelect($("#qYear")); setDefaultDates();
 wantedTab = new URLSearchParams(location.search).get("tab") || LS.get("ai_tab") || "quick";
-bind(); bindV12(); applySettingsToUI(); restoreDrafts(); applyTabs();
+bind(); bindV12(); bindAdmin14(); applySettingsToUI(); restoreDrafts(); applyTabs();
+setTimeout(() => (window.requestIdleCallback || setTimeout)(() => loadPdfLibs().catch(() => {})), 2500);
 initPwa(); initFirebase();

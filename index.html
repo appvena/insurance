@@ -5,25 +5,23 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Vehicle Protection</title>
 <meta name="description" content="Vehicle Protection — perlindungan asuransi kendaraan dengan rincian premi yang jelas.">
-<meta name="theme-color" content="#0b2a5b">
+<meta name="theme-color" content="#1f3c88">
 <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Vehicle Protection">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js" defer></script>
+<meta name="apple-mobile-web-app-title" content="Vpro">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
 <header class="top">
   <div class="brand">
-    <div class="logo"><svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="14.5" fill="none" stroke="#f5a623" stroke-width="4.2"/><circle cx="20" cy="20" r="4.6" fill="#f5a623"/><path d="M20 20 6.6 24.6M20 20l13.4 4.6M20 20v13.8" stroke="#f5a623" stroke-width="3.6" stroke-linecap="round"/><circle cx="20" cy="20" r="1.7" fill="#0b2a5b"/></svg></div>
+    <div class="logo" id="hdrLogo"><img class="def" src="icons/icon-192.png" alt=""></div>
     <div style="min-width:0"><b id="hdrBrand">ALEX INSURANCE</b><small>Vehicle Protection</small></div>
   </div>
   <nav id="nav">
@@ -188,22 +186,30 @@
   </div>
 
   <div id="adminBox" hidden>
-    <div class="adminbar">
-      <span class="who" id="adminWho"></span>
-      <button class="btn pri" id="btnSave">💾 Simpan Pengaturan</button>
-      <button class="btn danger sm" id="btnLogout">Keluar</button>
-    </div>
-    <div class="subtabs" id="subtabs">
-      <button data-sub="inbox" class="active">Inbox <span class="nbadge" id="inboxBadge" hidden></span></button>
-      <button data-sub="rate">Rate Kasko</button>
-      <button data-sub="ext">Perluasan & Biaya</button>
-      <button data-sub="disp">Tampilan</button>
-      <button data-sub="text">Teks Polis</button>
-      <button data-sub="veh">Kendaraan</button>
-      <button data-sub="comp">Perusahaan</button>
-      <button data-sub="front">Halaman Depan</button>
-      <button data-sub="acct">Akun</button>
-    </div>
+    <div class="adm" id="adm">
+    <aside class="adm-menu">
+      <div class="adm-who"><div class="av" id="admAv">A</div><div style="min-width:0"><b>Admin</b><div class="hint" id="adminWho"></div></div></div>
+      <div id="subtabs">
+        <div class="menu-grp"><button class="mi" data-sub="inbox"><span class="ic coral"><svg viewBox="0 0 24 24"><path d="M4 13h4l2 3h4l2-3h4"/><path d="M5 5h14l1 8v6H4v-6z"/></svg></span><span class="t">Inbox<small>Tanya admin</small></span><span class="nbadge" id="inboxBadge" hidden></span><svg class="chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></button></div>
+        <div class="mlbl">Perhitungan</div>
+        <div class="menu-grp">
+          <button class="mi" data-sub="rate"><span class="ic blue"><svg viewBox="0 0 24 24"><path d="M19 5 5 19"/><circle cx="7" cy="7" r="2.5"/><circle cx="17" cy="17" r="2.5"/></svg></span><span class="t">Rate kasko<small>Per fungsi & loading usia</small></span><svg class="chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></button>
+          <button class="mi" data-sub="ext"><span class="ic blue"><svg viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/></svg></span><span class="t">Perluasan & biaya<small>Banjir, TJH, PA, biaya</small></span><svg class="chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></button>
+          <button class="mi" data-sub="text"><span class="ic blue"><svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg></span><span class="t">Teks polis<small>Deductible, klausula</small></span><svg class="chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></button>
+          <button class="mi" data-sub="veh"><span class="ic blue"><svg viewBox="0 0 24 24"><path d="M3 13l2-5a2 2 0 0 1 2-1h10a2 2 0 0 1 2 1l2 5v4H3z"/><circle cx="7.5" cy="14.5" r="1"/><circle cx="16.5" cy="14.5" r="1"/></svg></span><span class="t">Kendaraan<small>Merek, model, harga acuan</small></span><svg class="chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></button>
+        </div>
+        <div class="mlbl">Tampilan & akun</div>
+        <div class="menu-grp">
+          <button class="mi" data-sub="disp"><span class="ic gray"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 9v11"/></svg></span><span class="t">Tampilan<small>Menu & pilihan di halaman</small></span><svg class="chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></button>
+          <button class="mi" data-sub="front"><span class="ic gray"><svg viewBox="0 0 24 24"><path d="M3 11 12 4l9 7"/><path d="M5 10v10h14V10"/></svg></span><span class="t">Halaman depan<small>Hubungi saya, header</small></span><svg class="chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></button>
+          <button class="mi" data-sub="comp"><span class="ic gray"><svg viewBox="0 0 24 24"><path d="M4 21V7l8-4 8 4v14"/><path d="M9 21v-5h6v5M9 10h.01M15 10h.01"/></svg></span><span class="t">Perusahaan<small>Identitas & logo</small></span><svg class="chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></button>
+          <button class="mi" data-sub="acct"><span class="ic gray"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></span><span class="t">Akun<small>Password, email, versi</small></span><svg class="chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></button>
+        </div>
+      </div>
+      <button class="btn danger" id="btnLogout" style="width:100%;justify-content:center;margin-top:14px">Keluar</button>
+    </aside>
+    <section class="adm-main">
+      <div class="adm-top"><button class="backbtn" id="admBack" aria-label="Kembali"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button><h2 id="admTitle">Inbox</h2></div>
 
     <div data-pane="inbox">
       <div class="card"><h2>Inbox Tanya Admin <span class="tag" id="inboxCount"></span></h2>
@@ -218,7 +224,7 @@
     <div data-pane="rate" hidden>
       <div class="card"><h2>Fungsi Kendaraan</h2>
         <p class="hint" style="margin-top:-6px">Setiap fungsi punya tabel rate kasko sendiri. Kendaraan komersial hanya bisa memilih Comprehensive.</p>
-        <div class="subtabs" style="margin:0"><button data-rfunc="PRIBADI">Pribadi</button><button data-rfunc="DINAS">Dinas</button><button data-rfunc="KOMERSIAL">Komersial</button></div>
+        <div class="seg"><button data-rfunc="PRIBADI">Pribadi</button><button data-rfunc="DINAS">Dinas</button><button data-rfunc="KOMERSIAL">Komersial</button></div>
         <div class="btns"><button class="btn sm" id="btnCopyTier" style="flex:0 1 auto">Salin tabel dari Pribadi</button></div>
       </div>
       <div class="card"><h2>Rate Comprehensive — <span class="rateFuncName"></span></h2>
@@ -290,7 +296,7 @@
     <div data-pane="text" hidden>
       <div class="card"><h2>Fungsi Kendaraan</h2>
         <p class="hint" style="margin-top:-6px">Risiko sendiri, klausula, dan subjectivity dibedakan per fungsi kendaraan.</p>
-        <div class="subtabs" style="margin:0"><button data-tfunc="PRIBADI">Pribadi</button><button data-tfunc="DINAS">Dinas</button><button data-tfunc="KOMERSIAL">Komersial</button></div>
+        <div class="seg"><button data-tfunc="PRIBADI">Pribadi</button><button data-tfunc="DINAS">Dinas</button><button data-tfunc="KOMERSIAL">Komersial</button></div>
         <div class="btns"><button class="btn sm" id="btnCopyText" style="flex:0 1 auto">Salin teks dari Pribadi</button></div>
       </div>
       <div class="card"><h2>Risiko Sendiri (Deductible) — <span class="textFuncName"></span></h2><p class="hint">Satu baris = satu butir.</p><textarea id="aDeduct"></textarea></div>
@@ -333,6 +339,16 @@
           <div class="f"><label>Nama penandatangan</label><input id="cSigner"></div>
           <div class="f"><label>Prefix nomor penawaran</label><input id="cPrefix"></div>
         </div></div>
+      <div class="card"><h2>Logo</h2>
+        <p class="hint" style="margin-top:-6px">Tampil di header aplikasi dan di PDF penawaran. Gunakan PNG dengan latar transparan atau JPG, bentuk persegi lebih rapi.</p>
+        <div class="row">
+          <div class="f"><label>File logo</label><input id="lgFile" type="file" accept="image/png,image/jpeg,image/webp"></div>
+          <div class="f" style="justify-content:flex-end"><div id="lgPrevWrap" hidden style="display:flex;align-items:center;gap:12px">
+            <img id="lgPreview" alt="" style="width:56px;height:56px;object-fit:contain;border:1px solid var(--bd);border-radius:10px;background:#fff;padding:4px">
+            <button class="btn sm danger" id="btnLogoDel">Hapus logo</button></div></div>
+        </div>
+        <p class="hint">Tanpa logo, header memakai ikon setir dan PDF memakai inisial logo.</p>
+      </div>
     </div>
 
     <div data-pane="front" hidden>
@@ -370,12 +386,19 @@
         </div>
         <p class="hint">Link verifikasi akan dikirim ke email baru. Email login baru aktif setelah link tersebut diklik.</p>
         <div class="btns"><button class="btn pri" id="btnChgEmail">Kirim Verifikasi Email Baru</button></div></div>
+      <div class="card"><h2>Versi Aplikasi</h2>
+        <p style="margin:0 0 4px">Versi terpasang: <b id="verNow"></b></p>
+        <p class="hint" style="margin:0">Aplikasi memeriksa pembaruan otomatis setiap dibuka. Jika ada versi baru, muncul tombol <b>Perbarui</b>.</p>
+        <div class="btns"><button class="btn" id="btnCheckUpd" style="flex:0 1 auto">Periksa pembaruan</button></div></div>
     </div>
+    </section>
+    </div>
+    <div class="savebar" id="saveBar" hidden><span id="saveTxt">Semua perubahan tersimpan</span><button class="btn pri" id="btnSave">Simpan</button></div>
   </div>
 </section>
 </main>
 
-<footer><div id="ftContact"></div>Copyright © SRISP 2026 · v1.3</footer>
+<footer><div id="ftContact"></div>Copyright © SRISP 2026 · v1.4.1</footer>
 
 <div class="modal" id="iosModal" hidden>
   <div class="card">
@@ -395,7 +418,7 @@
     <div class="btns"><button class="btn" id="exitNo">Batal</button><button class="btn pri" id="exitYes">Keluar</button></div>
   </div>
 </div>
-<div class="bar" id="updBar" hidden><span>Versi baru aplikasi tersedia.</span><button class="btn sm" id="btnUpd">Muat ulang</button></div>
+<div class="upd" id="updBar" hidden><div><b>Versi baru tersedia</b><span>Perbarui sekarang. Isian dan perhitungan Anda tetap aman.</span></div><button class="btn acc" id="btnUpd">Perbarui</button></div>
 <div class="toast" id="toast"></div>
 
 <script type="module" src="js/app.js"></script>

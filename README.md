@@ -1,6 +1,6 @@
-# Vehicle Protection — v1.3
+# Vehicle Protection — v1.4.1
 
-Copyright © SRISP 2026 · v1.3
+Copyright © SRISP 2026 · v1.4.1
 
 ## Isi zip
 ```
@@ -17,6 +17,17 @@ panduan/              ← JANGAN di-upload ke GitHub (supaya tidak bisa dibuka p
   README.md
   firestore.rules     tempel di Firebase Console → Firestore → Rules
 ```
+
+## Yang baru di v1.4.1
+- Ikon aplikasi baru (setir neon) untuk Android, iPhone, PC, favicon, dan header aplikasi.
+
+## Yang baru di v1.4
+- **Halaman Admin baru**: di HP berupa menu daftar → halaman isi dengan tombol kembali; di PC menu di kiri, isi di kanan. Tombol **Simpan** selalu di bawah layar dengan tanda "Ada perubahan yang belum disimpan". Tombol kembali HP menutup halaman isi dulu.
+- **Warna lebih lembut** dan aplikasi lebih ringan: library PDF dimuat belakangan, font lebih sedikit.
+- **Pembaruan aplikasi**: aplikasi memeriksa versi baru setiap dibuka. Jika ada, muncul kartu **Versi baru tersedia → Perbarui**. Di Admin → Akun ada **Periksa pembaruan** dan nomor versi.
+- **Logo upload** (Admin → Perusahaan → Logo): tampil di header aplikasi dan PDF.
+- Nama di ikon aplikasi terpasang: **Vpro**. Di dalam aplikasi tetap Vehicle Protection.
+- Hitung Cepat dan Penawaran tidak berubah, kecuali warna.
 
 ## Yang baru di v1.3
 - **Perluasan Tambahan** (Admin → Perluasan & Biaya → + Tambah perluasan): isi nama, rate (× Harga Pertanggungan), keterangan untuk halaman depan, klausula untuk PDF, centang fungsi yang berlaku (Pribadi / Dinas / Komersial), dan Aktif.
@@ -55,7 +66,7 @@ Firestore Database → Create database (lokasi `asia-southeast2 (Jakarta)`, mode
 Upload isi `upload-ke-github/` ke repository → Settings → Pages → Deploy from a branch → main / root → Save.
 
 ## Memperbarui di kemudian hari
-Setiap ada file yang diubah, naikkan `VERSION` di `sw.js` (mis. `ai-v1.3.0` → `ai-v1.3.1`) supaya aplikasi yang sudah terpasang mendapat versi baru.
+Setiap ada file yang diubah, naikkan `VERSION` di `sw.js` (mis. `ai-v1.4.1` → `ai-v1.4.2`) supaya aplikasi yang sudah terpasang mendapat versi baru.
 
 ## Catatan
 - Tulisan teknis sudah tidak tampil di halaman. Kode sumber (View Source) tetap bisa dibaca siapa pun, seperti semua situs web; keamanan data dijaga oleh Firestore Rules.

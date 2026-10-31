@@ -1,6 +1,6 @@
 {
   "name": "Vehicle Protection",
-  "short_name": "Vehicle Protection",
+  "short_name": "Vpro",
   "description": "Perlindungan asuransi kendaraan.",
   "id": "./",
   "start_url": "./",
@@ -8,7 +8,7 @@
   "display": "standalone",
   "orientation": "any",
   "background_color": "#f3f5fa",
-  "theme_color": "#0b2a5b",
+  "theme_color": "#1f3c88",
   "lang": "id",
   "categories": ["finance", "business", "productivity"],
   "icons": [

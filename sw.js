@@ -1,7 +1,7 @@
 /* Service worker — Vehicle Protection
    PENTING: naikkan VERSION setiap kali ada file yang diubah,
    supaya HP/PC yang sudah memasang aplikasi mendapat versi baru. */
-const VERSION = "ai-v1.3.0";
+const VERSION = "ai-v1.4.1";
 const SHELL = [
   "./", "./index.html", "./manifest.json",
   "./css/style.css", "./js/app.js", "./js/config.js", "./js/data.js",
