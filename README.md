@@ -1,6 +1,6 @@
-# Vehicle Protection — v1.6
+# Vehicle Protection — v1.7
 
-Copyright © SRISP 2026 · v1.6
+Copyright © SRISP 2026 · v1.7
 
 ## Isi zip
 ```
@@ -17,6 +17,29 @@ panduan/              ← JANGAN di-upload ke GitHub (supaya tidak bisa dibuka p
   README.md
   firestore.rules     tempel di Firebase Console → Firestore → Rules
 ```
+
+## Yang baru di v1.7
+### Super Admin (pemilik)
+- Dibuka dengan **mengetuk tulisan versi di footer 5 kali**. Email super admin otomatis terisi, Anda tinggal mengisi password.
+- Email super admin: `saidrezaifransyahputra@gmail.com`. **Periksa ejaannya** di `js/config.js` (`SUPER_ADMIN_EMAIL`) dan di `firestore.rules` — harus sama persis dengan akun yang Anda buat di Firebase Authentication. (Catatan: email akun Google Anda tampak `saidrezairfansyahputra@gmail.com`; bila berbeda, samakan keduanya.)
+- Buat akunnya di Firebase → Authentication → Add user, dengan email itu dan password pilihan Anda.
+- Super admin punya semua hak admin, plus menu **Log Aktivitas**.
+
+### Log Aktivitas (hanya super admin)
+- Mencatat: login, logout, simpan pengaturan, simpan/hapus penawaran, ubah status, buat PDF, kirim WA, pulihkan & buat cadangan.
+- Tiap entri: waktu, email, perangkat (OS · browser), dan **lokasi saat login** (koordinat + tautan Google Maps + akurasi).
+- **Lokasi hanya untuk akun yang login, bukan pengunjung.** Saat login, aplikasi meminta izin lokasi secara terbuka (ada keterangan di layar login). Jika izin ditolak, login tetap berhasil dan dicatat "Lokasi tidak dibagikan" — tidak ada pemaksaan dan tidak ada pelacakan terus-menerus.
+- Tombol **Hapus > 90 hari** untuk membersihkan log lama.
+
+### Cadangan
+- Cadangan otomatis per-Simpan **dihapus**. Diganti **cadangan otomatis tahunan**: dibuat saat admin pertama membuka aplikasi pada/ setelah 1 Januari tiap tahun.
+- Ditambah tombol **Buat cadangan cloud sekarang** (manual) di Admin → Cadangan.
+- 20 cadangan terakhir disimpan dan bisa dipulihkan.
+
+### Setelah upload v1.7 — WAJIB
+1. **Firebase → Authentication → Add user**: buat akun super admin (`saidrezaifransyahputra@gmail.com`) + password.
+2. **Firestore → Rules**: tempel ulang `panduan/firestore.rules` (ada aturan baru `isSuper()` dan koleksi `logs`), isi kembali UID admin, lalu **Publish**. Tanpa ini, Log Aktivitas tidak bisa dibaca.
+3. Agar lokasi akurat berfungsi, situs harus diakses lewat **https** (GitHub Pages sudah https).
 
 ## Yang baru di v1.6
 ### Animasi loading
@@ -140,7 +163,7 @@ Firestore Database → Create database (lokasi `asia-southeast2 (Jakarta)`, mode
 Upload isi `upload-ke-github/` ke repository → Settings → Pages → Deploy from a branch → main / root → Save.
 
 ## Memperbarui di kemudian hari
-Setiap ada file yang diubah, naikkan `VERSION` di `sw.js` (mis. `ai-v1.6.0` → `ai-v1.6.1`) supaya aplikasi yang sudah terpasang mendapat versi baru.
+Setiap ada file yang diubah, naikkan `VERSION` di `sw.js` (mis. `ai-v1.7.0` → `ai-v1.7.1`) supaya aplikasi yang sudah terpasang mendapat versi baru.
 
 ## Catatan
 - Tulisan teknis sudah tidak tampil di halaman. Kode sumber (View Source) tetap bisa dibaca siapa pun, seperti semua situs web; keamanan data dijaga oleh Firestore Rules.

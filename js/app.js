@@ -1,5 +1,5 @@
-/* Vehicle Protection — v1.6 · Copyright © SRISP 2026 */
-import { firebaseConfig, FB_VER, APP_VERSION, COPYRIGHT } from "./config.js";
+/* Vehicle Protection — v1.7 · Copyright © SRISP 2026 */
+import { firebaseConfig, FB_VER, APP_VERSION, COPYRIGHT, ADMIN_LOGIN_EMAIL, SUPER_ADMIN_EMAIL } from "./config.js";
 import { EXT_DEFS, COVER_LABEL, DEFAULT_SETTINGS, DEFAULT_VEHICLES, FUNCS, FUNC_COVERS, CATS, OJK_W1, catOfType, NEW_VEHICLES_152 } from "./data.js";
 
 /* ====================== UTIL ====================== */
@@ -365,6 +365,34 @@ function applySettingsToUI() {
 /* Penawaran & Riwayat hanya setelah login. Selama status login belum diketahui (mis. offline),
    dipakai tanda login terakhir di perangkat ini. */
 const isAuthed = () => authResolved ? !!user : !!LS.get("ai_authed");
+const isSuper = () => !!user && (user.email || "").toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
+/* ---- Lokasi login & log aktivitas (hanya untuk akun yang login, bukan pengunjung) ---- */
+let loginLoc = null;
+function captureLocation() {
+  return new Promise(res => {
+    if (!navigator.geolocation) return res(null);
+    navigator.geolocation.getCurrentPosition(
+      p => res({ lat: +p.coords.latitude.toFixed(6), lng: +p.coords.longitude.toFixed(6), acc: Math.round(p.coords.accuracy || 0), at: Date.now() }),
+      () => res(null),
+      { enableHighAccuracy: true, timeout: 9000, maximumAge: 120000 }
+    );
+  });
+}
+function deviceLabel() {
+  const ua = navigator.userAgent, m = o => ua.includes(o);
+  const os = m("Android") ? "Android" : m("iPhone") || m("iPad") ? "iOS" : m("Windows") ? "Windows" : m("Mac") ? "Mac" : m("Linux") ? "Linux" : "Lainnya";
+  const br = m("Edg") ? "Edge" : m("Chrome") ? "Chrome" : m("Firefox") ? "Firefox" : m("Safari") ? "Safari" : "Browser";
+  return `${os} · ${br}`;
+}
+function logEvent(action, detail = "") {
+  if (!fb || !user) return;
+  try {
+    fb.F.addDoc(fb.F.collection(fb.db, "logs"), {
+      at: fb.F.serverTimestamp(), email: user.email, action, detail: String(detail).slice(0, 200),
+      device: deviceLabel(), ua: navigator.userAgent.slice(0, 200), loc: loginLoc || null
+    }).catch(() => {});
+  } catch {}
+}
 const TABS = ["home", "quick", "calc", "hist", "admin"];
 function tabAllowed(t) {
   const a = isAuthed();
@@ -385,6 +413,7 @@ function showTab(name, auto = false) {
   $$(".tab").forEach(x => x.classList.toggle("active", x.dataset.tab === name));
   TABS.forEach(t => $("#tab-" + t).hidden = t !== name);
   if (name === "hist" && changed) loadHistory();
+  if (name === "admin" && changed && isMobile()) closeAdmPane();
   if (name === "home" && (changed || !$("#homeBox").innerHTML)) renderHome();
   renderAdminGate();
   if (changed && !auto) window.scrollTo(0, 0);
@@ -640,7 +669,7 @@ function saveRecord(silent = false) {
     total: last.r.total, gross: last.r.gross, si: last.r.si, by: user?.email || old.by || "", status: old.status || "baru" };
   writeRecord(rec);
   updateSaveState();
-  if (!silent) toast("Perhitungan tersimpan ke riwayat.", "ok");
+  if (!silent) { toast("Perhitungan tersimpan ke riwayat.", "ok"); logEvent("quote_save", `${rec.ref || ""} · ${rec.inp && rec.inp.name || ""}`); }
   if (!$("#tab-hist").hidden) renderHist();
   return rec;
 }
@@ -732,6 +761,7 @@ function openRecord(id) {
 async function deleteRecord(id) {
   const r = histItems().find(x => x.id === id); if (!r || !confirm(`Hapus perhitungan ${r.inp.name || r.ref}?`)) return;
   /* hapus lunak: tanda hapus ikut tersinkron ke perangkat lain, isi data tidak disimpan lagi */
+  logEvent("quote_delete", `${r.ref || ""} · ${r.inp && r.inp.name || ""}`);
   writeRecord({ id, deleted: true, savedAt: r.savedAt, updatedAt: new Date().toISOString() });
   if (currentId === id) { currentId = null; currentRef = null; updateSaveState(); }
   renderHist(); toast("Dihapus.");
@@ -929,7 +959,7 @@ function doPdf() {
   return withBtn($("#btnPdf"), async () => {
     if (!pdfReady()) { try { await loadPdfLibs(); } catch { return toast("PDF belum bisa dibuat. Periksa koneksi internet.", "err"); } }
     await new Promise(r => setTimeout(r, 30));
-    const pdf = prepare(); if (!pdf) return; download(pdf.blob, pdf.name); toast("PDF berhasil dibuat.", "ok");
+    const pdf = prepare(); if (!pdf) return; download(pdf.blob, pdf.name); toast("PDF berhasil dibuat.", "ok"); logEvent("pdf", `${pdf.ref} · ${last.inp.name || ""}`);
   }, "Membuat PDF…");
 }
 function doWa() { return withBtn($("#btnWa"), doWaInner, "Menyiapkan…"); }
@@ -937,7 +967,7 @@ async function doWaInner() {
   if (!pdfReady()) { try { await loadPdfLibs(); } catch { return toast("PDF belum bisa dibuat. Periksa koneksi internet.", "err"); } }
   await new Promise(r => setTimeout(r, 30));
   const pdf = prepare(); if (!pdf) return;
-  const text = summaryText(last.inp, last.r, "PENAWARAN ASURANSI KENDARAAN") + `\n\nNo. Ref: ${pdf.ref}\nRincian lengkap pada PDF terlampir.`;
+  const text = summaryText(last.inp, last.r, "PENAWARAN ASURANSI KENDARAAN") + `\n\nNo. Ref: ${pdf.ref}\nRincian lengkap pada PDF terlampir.`; logEvent("wa", `${pdf.ref} · ${last.inp.name || ""}`);
   const file = new File([pdf.blob], pdf.name, { type: "application/pdf" });
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
     try { await navigator.share({ files: [file], title: pdf.name, text }); markSent(); return; }
@@ -963,7 +993,10 @@ async function initFirebase() {
       const prev = user; user = u; authResolved = true;
       if (u) LS.set("ai_authed", u.email); else { try { localStorage.removeItem("ai_authed"); } catch {} }
       applyTabs(); renderAdminGate();
-      if (u) { syncHistory(!prev); startInbox(); if (!prev) loadRemote(true).catch(() => {}); } else stopInbox();
+      if (u) {
+        syncHistory(!prev); startInbox();
+        if (!prev) { loadRemote(true).catch(() => {}); captureLocation().then(l => { loginLoc = l; logEvent("login"); }); maybeYearlyBackup().catch(() => {}); }
+      } else stopInbox();
       if (!$("#tab-hist").hidden) renderHist();
     });
     await loadRemote();
@@ -1004,6 +1037,7 @@ function renderAdminGate() {
   $("#loginBox").hidden = !fb || !!user;
   $("#adminBox").hidden = !fb || !user;
   if (fb && user && showAdmin) { $("#adminWho").textContent = user.email; $("#admAv").textContent = (user.email[0] || "A").toUpperCase(); if (!isMobile() && !$("#adm").classList.contains("open")) openAdmPane(admPane); if (!fillAdmin.done) { fillAdmin(); fillAdmin.done = true; } }
+  $("#superGrp").hidden = !isSuper();
   if (!user) fillAdmin.done = false;
   updateSaveBar();
 }
@@ -1171,9 +1205,8 @@ async function saveAll() {
     if (firstClean || logoDirty) { await setDoc(doc(db, "config", "logo"), { image: LOGO_IMG, ...t }); logoDirty = false; LS.set("ai_logo", LOGO_IMG); nm.logo = stamp; }
     await setDoc(doc(db, "config", "meta"), nm);
     LS.set(MKEY, { ...nm, checked: Date.now() });
-    autoBackup().catch(() => {});
     LS.set("ai_settings", S); LS.set("ai_vehicles", VEH);
-    applySettingsToUI(); fillAdmin(); setDirty(false); showTab("admin"); toast("Pengaturan tersimpan.", "ok");
+    applySettingsToUI(); fillAdmin(); setDirty(false); showTab("admin"); toast("Pengaturan tersimpan.", "ok"); logEvent("settings_save");
   } catch (e) {
     toast(e.code === "permission-denied" ? "Akses ditolak. Akun ini tidak memiliki izin admin." : "Gagal menyimpan. Periksa koneksi lalu coba lagi.", "err", 6000);
   } finally { btnLoad(btn, false); busy(-1); }
@@ -1335,7 +1368,7 @@ function bind() {
     if (p) { if (openRecord(p.dataset.hpdf)) doPdf(); }
     if (d) deleteRecord(d.dataset.hdel);
   });
-  $("#hList").addEventListener("change", e => { const s = e.target.closest("[data-hst]"); if (s) { updateRecord(s.dataset.hst, { status: s.value }); renderHist(); toast("Status diperbarui."); } });
+  $("#hList").addEventListener("change", e => { const s = e.target.closest("[data-hst]"); if (s) { updateRecord(s.dataset.hst, { status: s.value }); renderHist(); toast("Status diperbarui."); logEvent("status", `${s.value}`); } });
   $("#hStatus").addEventListener("change", renderHist);
   $("#renewList").addEventListener("click", e => {
     const rm = e.target.closest("[data-remind]"); if (rm) { updateRecord(rm.dataset.remind, { remindedAt: new Date().toISOString() }); setTimeout(renderHist, 300); }
@@ -1354,7 +1387,7 @@ function bind() {
     e.preventDefault(); const em = $("#lEmail").value.trim(); if (!em) return toast("Isi email dulu.", "err");
     try { await fb.A.sendPasswordResetEmail(fb.auth, em); toast("Link reset password dikirim ke " + em, "ok", 5000); } catch (er) { toast(authMsg(er), "err"); }
   });
-  $("#btnLogout").addEventListener("click", () => { if (admDirty && !confirm("Ada perubahan yang belum disimpan. Tetap keluar?")) return; setDirty(false); fb.A.signOut(fb.auth); });
+  $("#btnLogout").addEventListener("click", () => { if (admDirty && !confirm("Ada perubahan yang belum disimpan. Tetap keluar?")) return; logEvent("logout"); setDirty(false); loginLoc = null; fb.A.signOut(fb.auth); });
   $("#btnSave").addEventListener("click", saveAll);
 
   document.addEventListener("click", e => {
@@ -1400,7 +1433,7 @@ function bind() {
 }
 
 /* ====================== ADMIN: MENU DAFTAR + HALAMAN ISI ====================== */
-const ADM_TITLES = { backup: "Cadangan", inbox: "Inbox", rate: "Rate kasko", ext: "Perluasan & biaya", text: "Teks polis", veh: "Kendaraan", disp: "Tampilan", front: "Halaman depan", comp: "Perusahaan", acct: "Akun" };
+const ADM_TITLES = { logs: "Log Aktivitas", backup: "Cadangan", inbox: "Inbox", rate: "Rate kasko", ext: "Perluasan & biaya", text: "Teks polis", veh: "Kendaraan", disp: "Tampilan", front: "Halaman depan", comp: "Perusahaan", acct: "Akun" };
 const SAVE_PANES = ["rate", "ext", "text", "veh", "disp", "front", "comp"];
 let admDirty = false, admPane = "inbox";
 const isMobile = () => matchMedia("(max-width: 760px)").matches;
@@ -1416,6 +1449,7 @@ function updateSaveBar() {
 function openAdmPane(sub) {
   readTiers();
   if (sub === "backup") loadBackups();
+  if (sub === "logs") loadLogs();
   admPane = sub;
   $$("#subtabs .mi").forEach(x => x.classList.toggle("active", x.dataset.sub === sub));
   $$("[data-pane]").forEach(p => p.hidden = p.dataset.pane !== sub);
@@ -1464,15 +1498,21 @@ async function restoreFromFile(file) {
     const { doc, setDoc, Timestamp } = fb.F;
     await Promise.all(data.inbox.filter(x => x && x.id).map(({ id, ...x }) => setDoc(doc(fb.db, "inbox", id), { ...x, createdAt: x.createdAt ? Timestamp.fromDate(new Date(x.createdAt)) : Timestamp.now() }).catch(() => {})));
   }
-  toast("Cadangan dimuat. Periksa lalu klik Simpan untuk menerapkan pengaturan.", "ok", 6000);
+  toast("Cadangan dimuat. Periksa lalu klik Simpan untuk menerapkan pengaturan.", "ok", 6000); logEvent("restore", `${nq} penawaran, ${ni} pesan`);
 }
-async function autoBackup() {
+async function cloudBackup(kind) {
   if (!fb || !user) return;
-  const { collection, addDoc, serverTimestamp, query, orderBy, getDocs, deleteDoc } = fb.F;
-  await addDoc(collection(fb.db, "backups"), { at: serverTimestamp(), by: user.email, version: APP_VERSION, settings: clone(S), vehicles: VEH });
-  const { limit } = fb.F;
+  const { collection, addDoc, serverTimestamp, query, orderBy, getDocs, deleteDoc, limit } = fb.F;
+  await addDoc(collection(fb.db, "backups"), { at: serverTimestamp(), by: user.email, version: APP_VERSION, kind: kind || "manual", settings: clone(S), vehicles: VEH });
   const snap = await getDocs(query(collection(fb.db, "backups"), orderBy("at", "desc"), limit(25)));
   await Promise.all(snap.docs.slice(20).map(d => deleteDoc(d.ref)));
+}
+/* Cadangan otomatis sekali setahun: saat admin pertama membuka aplikasi pada/ setelah 1 Januari tahun itu. */
+async function maybeYearlyBackup() {
+  if (!fb || !user) return;
+  const y = new Date().getFullYear();
+  if (LS.get("ai_backup_year") === y) return;
+  try { await cloudBackup("tahunan"); LS.set("ai_backup_year", y); logEvent("backup_tahunan", String(y)); } catch {}
 }
 let BACKUPS = [];
 async function loadBackups() {
@@ -1486,8 +1526,48 @@ async function loadBackups() {
     box.innerHTML = BACKUPS.map((b, i) => {
       const t = b.at && b.at.toDate ? b.at.toDate().toLocaleString("id-ID", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "-";
       return `<div class="bk"><div><b>${esc(t)}</b><div class="hint">${esc(b.by || "")} · ${esc(b.version || "")}${i === 0 ? " · terbaru" : ""}</div></div><button class="btn sm" data-bkrestore="${i}">Pulihkan</button></div>`;
-    }).join("") || `<p class="hint">Belum ada cadangan otomatis. Cadangan pertama dibuat saat Anda klik Simpan.</p>`;
+    }).join("") || `<p class="hint">Belum ada cadangan. Cadangan tahunan dibuat otomatis awal tahun, atau buat manual dengan tombol di atas.</p>`;
   } catch { box.innerHTML = `<p class="hint">Cadangan otomatis belum dapat dimuat. Periksa koneksi.</p>`; }
+}
+/* ====================== LOG AKTIVITAS (super admin) ====================== */
+let LOGS = [];
+const ACT_LABEL = { login: "Login", logout: "Logout", settings_save: "Simpan pengaturan", quote_save: "Simpan penawaran", quote_delete: "Hapus penawaran", status: "Ubah status", pdf: "Buat PDF", wa: "Kirim WA", restore: "Pulihkan cadangan", backup_tahunan: "Cadangan tahunan" };
+async function loadLogs() {
+  const box = $("#logList");
+  if (!isSuper()) { box.innerHTML = `<p class="hint">Hanya super admin yang dapat melihat log.</p>`; return; }
+  box.innerHTML = SKEL(4); busy(1);
+  try {
+    const { collection, query, orderBy, limit, getDocs } = fb.F;
+    const snap = await getDocs(query(collection(fb.db, "logs"), orderBy("at", "desc"), limit(400)));
+    LOGS = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderLogs();
+  } catch { box.innerHTML = `<p class="hint">Gagal memuat log. Periksa koneksi, dan pastikan aturan Firestore sudah diperbarui untuk koleksi logs.</p>`; }
+  finally { busy(-1); }
+}
+function renderLogs() {
+  const q = $("#logSearch").value.trim().toLowerCase();
+  const rows = LOGS.filter(l => !q || `${l.email} ${ACT_LABEL[l.action] || l.action} ${l.detail || ""}`.toLowerCase().includes(q));
+  $("#logCount").textContent = `${LOGS.length} entri`;
+  $("#logList").innerHTML = rows.map(l => {
+    const t = l.at && l.at.toDate ? l.at.toDate().toLocaleString("id-ID", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "-";
+    const loc = l.loc && l.loc.lat != null
+      ? `<a href="https://www.google.com/maps?q=${l.loc.lat},${l.loc.lng}" target="_blank" rel="noopener">${l.loc.lat}, ${l.loc.lng}</a> (±${l.loc.acc} m)`
+      : `<span class="hint">Lokasi tidak dibagikan</span>`;
+    return `<div class="logrow"><div class="lh"><span class="act">${esc(ACT_LABEL[l.action] || l.action)}</span><span class="hint">${esc(t)}</span></div>
+      <div class="meta"><b>${esc(l.email || "-")}</b>${l.detail ? " · " + esc(l.detail) : ""}</div>
+      <div class="meta">${esc(l.device || "")} · Lokasi: ${loc}</div></div>`;
+  }).join("") || `<div class="empty">${LOGS.length ? "Tidak ditemukan." : "Belum ada aktivitas tercatat."}</div>`;
+}
+async function clearOldLogs() {
+  if (!isSuper() || !confirm("Hapus semua log yang lebih lama dari 90 hari?")) return;
+  busy(1);
+  try {
+    const { collection, query, where, getDocs, deleteDoc, Timestamp } = fb.F;
+    const cut = Timestamp.fromMillis(Date.now() - 90 * 864e5);
+    const snap = await getDocs(query(collection(fb.db, "logs"), where("at", "<", cut)));
+    await Promise.all(snap.docs.map(d => deleteDoc(d.ref)));
+    toast(`${snap.docs.length} log lama dihapus.`, "ok"); loadLogs();
+  } catch { toast("Gagal menghapus log.", "err"); } finally { busy(-1); }
 }
 /* ====================== MODE GELAP ====================== */
 const SUN = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
@@ -1519,6 +1599,15 @@ function bindTheme() {
 }
 function bindAdmin14() {
   $("#btnBkDown").addEventListener("click", downloadBackup);
+  $("#btnBkNow").addEventListener("click", () => withBtn($("#btnBkNow"), async () => { try { await cloudBackup("manual"); logEvent("backup_manual"); if (!$("[data-pane=backup]").hidden) loadBackups(); toast("Cadangan cloud dibuat.", "ok"); } catch { toast("Gagal membuat cadangan. Periksa koneksi.", "err"); } }, "Menyimpan…"));
+  $("#logSearch").addEventListener("input", renderLogs);
+  $("#btnLogReload").addEventListener("click", loadLogs);
+  $("#btnLogClear").addEventListener("click", clearOldLogs);
+  let vtap = 0, vtmr = null;
+  $("#verTap").addEventListener("click", () => {
+    clearTimeout(vtmr); vtap++; vtmr = setTimeout(() => vtap = 0, 1500);
+    if (vtap >= 5) { vtap = 0; showTab("admin"); $("#lEmail").value = SUPER_ADMIN_EMAIL; setTimeout(() => { if (!user) { $("#lPass").focus(); toast("Masuk sebagai Super Admin. Isi password.", "ok", 4000); } }, 150); }
+  });
   $("#bkFile").addEventListener("change", async e => { const f = e.target.files[0]; if (f) await restoreFromFile(f); e.target.value = ""; });
   $("#bkList").addEventListener("click", e => {
     const b = e.target.closest("[data-bkrestore]"); if (!b) return;

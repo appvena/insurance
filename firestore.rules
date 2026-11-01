@@ -5,10 +5,16 @@ service cloud.firestore {
     // GANTI "GANTI_DENGAN_UID_ADMIN" dengan UID akun admin
     // (Firebase Console > Authentication > Users > kolom "User UID").
     // UID tidak berubah walaupun email admin diganti.
+    // Super admin (pemilik): akses penuh + melihat Log Aktivitas.
+    function isSuper() {
+      return request.auth != null
+        && request.auth.token.email == "saidrezaifransyahputra@gmail.com";
+    }
     function isAdmin() {
       return request.auth != null
         && (request.auth.uid == "GANTI_DENGAN_UID_ADMIN"
-            || request.auth.token.email == "alex@insurance.com");
+            || request.auth.token.email == "alex@insurance.com"
+            || isSuper());
       // Setelah UID diisi, HAPUS baris email di atas agar aman
       // ketika email admin nanti diganti.
     }
@@ -43,6 +49,14 @@ service cloud.firestore {
     // Cadangan otomatis pengaturan: hanya admin.
     match /backups/{backupId} {
       allow read, write: if isAdmin();
+    }
+
+    // Log aktivitas: setiap admin mencatat aktivitasnya sendiri (email harus cocok).
+    // Hanya super admin yang boleh membaca & menghapus.
+    match /logs/{logId} {
+      allow create: if isAdmin() && request.resource.data.email == request.auth.token.email;
+      allow read, delete: if isSuper();
+      allow update: if false;
     }
 
     // Semua koleksi lain tertutup.
