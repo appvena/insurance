@@ -1,6 +1,6 @@
-/* Vehicle Protection — v1.5.1 · Copyright © SRISP 2026 */
+/* Vehicle Protection — v1.5.2 · Copyright © SRISP 2026 */
 import { firebaseConfig, FB_VER, APP_VERSION, COPYRIGHT } from "./config.js";
-import { EXT_DEFS, COVER_LABEL, DEFAULT_SETTINGS, DEFAULT_VEHICLES, FUNCS, FUNC_COVERS } from "./data.js";
+import { EXT_DEFS, COVER_LABEL, DEFAULT_SETTINGS, DEFAULT_VEHICLES, FUNCS, FUNC_COVERS, CATS, OJK_W1, catOfType, NEW_VEHICLES_152 } from "./data.js";
 
 /* ====================== UTIL ====================== */
 const $ = s => document.querySelector(s);
@@ -37,17 +37,26 @@ function normalizeSettings(raw) {
   if (raw && raw.texts && raw.texts.deductible != null && !raw.textsByFunc)
     FUNCS.forEach(f => ["deductible", "clauses", "subjectivity"].forEach(k => { if (raw.texts[k] != null) s.textsByFunc[f.key][k] = raw.texts[k]; }));
   FUNCS.forEach(f => { const t = {}; FUNC_COVERS[f.key].forEach(cv => t[cv] = s.tiersByFunc[f.key][cv] || clone(s.tiersByFunc.PRIBADI.comprehensive)); s.tiersByFunc[f.key] = t; });
+  FUNCS.forEach(f => { const fl = {}; ["truck", "bus", "moto"].forEach(k => { fl[k] = {}; FUNC_COVERS[f.key].forEach(cv => { const v = ((s.flatByFunc[f.key] || {})[k] || {})[cv]; fl[k][cv] = v != null ? +v : OJK_W1[cv][k][1]; }); }); s.flatByFunc[f.key] = fl; });
   s.texts = { disclaimer: s.texts.disclaimer };
   delete s.tiers; delete s.updatedAt; delete s.updatedBy;
   return s;
 }
 let S = normalizeSettings(LS.get("ai_settings"));
 const funcLabel = k => (FUNCS.find(f => f.key === k) || { label: k || "-" }).label;
+const catInfo = k => CATS.find(c => c.key === k) || CATS[0];
+/* Tambahkan sekali kendaraan baru (truk, bus, roda 2) ke daftar lama yang sudah tersimpan */
+function mergeNewVehicles() {
+  if ((S.vehMerged || []).includes("v1.5.2")) return;
+  const has = new Set(VEH.map(v => (v.brand + "|" + v.model).toLowerCase()));
+  NEW_VEHICLES_152.forEach(v => { if (!has.has((v.brand + "|" + v.model).toLowerCase())) VEH.push(clone(v)); });
+}
 const TX = k => S.textsByFunc[k] || S.textsByFunc.PRIBADI;
 /* Perluasan tambahan buatan admin: { id, label, rate, desc, clause, funcs: {PRIBADI,DINAS,KOMERSIAL}, active } */
 const CX = (func) => (S.customExt || []).filter(x => x.active !== false && x.label && (!func || (x.funcs || {})[func] !== false));
 const cxChosen = inp => CX(inp.func).filter(x => (inp.ext || {})["c_" + x.id]);
 let VEH = Array.isArray(LS.get("ai_vehicles")) ? LS.get("ai_vehicles") : clone(DEFAULT_VEHICLES);
+mergeNewVehicles();
 let fb = null, user = null, last = null, lastQuick = null;
 let currentId = null, currentRef = null, cloudHist = null;
 let authResolved = false, wantedTab = null, draftsReady = false;
@@ -71,7 +80,8 @@ function calculate(S, inp) {
   const si = inp.price + inp.acc;
   const ft = S.tiersByFunc[inp.func] || S.tiersByFunc.PRIBADI;
   const cover = ft[inp.cover] ? inp.cover : "comprehensive";
-  const { rate: baseRate } = tierRate(ft[cover], si);
+  const cat = catInfo(inp.cat).key;
+  const baseRate = cat === "car" ? tierRate(ft[cover], si).rate : +(((S.flatByFunc[inp.func] || S.flatByFunc.PRIBADI)[cat] || {})[cover] || 0);
   const startYear = inp.start ? +inp.start.slice(0, 4) : new Date().getFullYear();
   const age = Math.max(0, startYear - (inp.year || startYear));
   const al = S.ageLoading;
@@ -175,7 +185,7 @@ function summaryText(inp, r, title) {
   if (inp.name) out.push(`Tertanggung: ${inp.name}`);
   const veh = `${inp.brand || ""} ${inp.model || ""}`.trim();
   if (veh || inp.year) out.push(`Kendaraan: ${veh || "-"} (${inp.year})${inp.plate ? " · " + inp.plate : ""}`);
-  out.push(`Fungsi: ${funcLabel(inp.func)}`, `Jaminan: ${COVER_LABEL[inp.cover]}`, `Harga Pertanggungan: ${rp(r.si)}`, "");
+  out.push(`Fungsi: ${funcLabel(inp.func)}`, ...(catInfo(inp.cat).key !== "car" ? [`Kategori: ${catInfo(inp.cat).short}`] : []), `Jaminan: ${COVER_LABEL[inp.cover]}`, `Harga Pertanggungan: ${rp(r.si)}`, "");
   r.lines.forEach(l => out.push(`• ${l.label}: ${rp(l.prem)}`));
   if (r.discAmt) out.push(`• Diskon ${pct(r.disc)}: -${rp(r.discAmt)}`);
   out.push(`Total Premi: ${rp(r.net)}`, `Biaya Polis + Materai: ${rp(r.policyCost + r.stampDuty)}`, `*Total Bayar: ${rp(r.total)}*`);
@@ -186,7 +196,7 @@ function summaryText(inp, r, title) {
 /* ====================== HITUNG CEPAT ====================== */
 function readQuick() {
   return {
-    func: $("#qFunc").value, cover: $("#qCover").value, price: parseNum($("#qPrice").value), acc: parseNum($("#qAcc").value),
+    func: $("#qFunc").value, cat: $("#qCat").value, cover: $("#qCover").value, price: parseNum($("#qPrice").value), acc: parseNum($("#qAcc").value),
     year: +$("#qYear").value, start: "", end: "", seats: +$("#qSeats").value || 0,
     ext: readExt("qext_"), tjh: liabVal("tjh", "#qTjh"), paD: liabVal("paD", "#qPaD"), paP: liabVal("paP", "#qPaP"),
     disc: +$("#qDisc").value || 0
@@ -194,7 +204,7 @@ function readQuick() {
 }
 function recalcQuick() { const inp = readQuick(); const r = calculate(S, inp); lastQuick = { inp, r }; renderResult("q", r); saveDrafts(); }
 function setQuick(q) {
-  setSel($("#qFunc"), q.func || "PRIBADI"); renderCoverSelect($("#qCover"), $("#qFunc").value);
+  setSel($("#qFunc"), q.func || "PRIBADI"); setSel($("#qCat"), q.cat || "car"); renderCoverSelect($("#qCover"), $("#qFunc").value);
   setSel($("#qCover"), q.cover); setSel($("#qYear"), q.year);
   $("#qPrice").value = q.price ? fmt(q.price) : ""; $("#qAcc").value = q.acc ? fmt(q.acc) : "";
   $("#qSeats").value = q.seats || 7;
@@ -227,7 +237,7 @@ function onModel(fromUser = true) {
   if (fromUser && !manual && m !== "") {
     const v = VEH[+m];
     if (v) {
-      $("#fType").value = v.type;
+      $("#fType").value = v.type; setSel($("#fCat"), catOfType(v.type));
       if (v.price > 0 && (!parseNum($("#fPrice").value) || $("#fPrice").dataset.auto === "1")) {
         $("#fPrice").value = fmt(v.price); $("#fPrice").dataset.auto = "1";
       }
@@ -241,7 +251,7 @@ function readInput() {
   const v = !manual && m !== "" ? VEH[+m] : null;
   return {
     name: $("#fName").value.trim(), address: $("#fAddr").value.trim(), phone: $("#fPhone").value.trim(),
-    func: $("#fFunc").value, cond: $("#fCond").value,
+    func: $("#fFunc").value, cat: $("#fCat").value, cond: $("#fCond").value,
     brand: b === "__manual" ? "" : b, model: manual ? $("#fModelManual").value.trim() : (v ? v.model : ""),
     vtype: $("#fType").value.trim(), year: +$("#fYear").value,
     plate: $("#fPlate").value.trim().toUpperCase(), color: $("#fColor").value.trim().toUpperCase(),
@@ -257,7 +267,7 @@ function setSel(sel, val) { const s = String(val ?? ""); if ([...sel.options].so
 function setInput(inp) {
   const set = (id, v) => { $(id).value = v ?? ""; };
   set("#fName", inp.name); set("#fAddr", inp.address); set("#fPhone", inp.phone);
-  setSel($("#fFunc"), inp.func); setSel($("#fCond"), inp.cond); renderCoverSelect($("#fCover"), $("#fFunc").value);
+  setSel($("#fFunc"), inp.func); setSel($("#fCat"), inp.cat || catOfType(inp.vtype)); setSel($("#fCond"), inp.cond); renderCoverSelect($("#fCover"), $("#fFunc").value);
   const idx = VEH.findIndex(v => v.brand === inp.brand && v.model === inp.model);
   if (idx >= 0) { $("#fBrand").value = inp.brand; renderModels(); $("#fModel").value = String(idx); $("#fModelManual").value = ""; }
   else if (!inp.brand && !inp.model) { $("#fBrand").value = ""; renderModels(); $("#fModelManual").value = ""; }
@@ -323,6 +333,7 @@ function applySettingsToUI() {
   $("#discWrap").hidden = !discOn; $("#qDiscWrap").hidden = !discOn;
   $$(".discMax").forEach(e => e.textContent = S.maxDiscount);
   $("#qSeatsWrap").hidden = !(S.paPassPerSeat && D().paP);
+  [$("#fCat"), $("#qCat")].forEach(sel => { if (!sel.options.length) fillSelect(sel, CATS.map(c => ({ v: c.key, t: c.label }))); });
   renderCoverSelect($("#fCover"), $("#fFunc").value); renderCoverSelect($("#qCover"), $("#qFunc").value);
   renderExt("#extList", "ext_", $("#fFunc").value); renderExt("#qExtList", "qext_", $("#qFunc").value);
   renderLimitSelects({ tjh: "#fTjh", paD: "#fPaD", paP: "#fPaP" });
@@ -761,6 +772,7 @@ function buildPdf(ref) {
     row("NO. POLISI", inp.plate), row("NO. RANGKA", inp.chassis), row("NO. MESIN", inp.engine),
     row("WARNA", inp.color), row("JUMLAH KURSI", inp.seats ? String(inp.seats) : "-"),
     row("FUNGSI", `${inp.func} - ${inp.cond}`),
+    row("KATEGORI TARIF", `${catInfo(inp.cat).label} (${catInfo(inp.cat).ojk})`),
     row("PERLENGKAPAN TAMBAHAN", inp.acc ? `${inp.accNote || "Ada"} (IDR ${fmt(inp.acc)})` : (inp.accNote || "Tidak Ada")),
     row("WILAYAH", S.region)
   ], y);
@@ -907,7 +919,7 @@ async function loadRemote() {
   if (s.exists()) { S = normalizeSettings(s.data()); LS.set("ai_settings", S); }
   if (hr && hr.exists() && !heroDirty) { HERO_IMG = hr.data().image || ""; LS.set("ai_hero", HERO_IMG); }
   try { const lg = await getDoc(doc(fb.db, "config", "logo")); if (lg.exists() && !logoDirty) { LOGO_IMG = lg.data().image || ""; LS.set("ai_logo", LOGO_IMG); } } catch {}
-  if (v.exists() && Array.isArray(v.data().list) && v.data().list.length) { VEH = v.data().list; LS.set("ai_vehicles", VEH); }
+  if (v.exists() && Array.isArray(v.data().list) && v.data().list.length) { VEH = v.data().list; mergeNewVehicles(); LS.set("ai_vehicles", VEH); }
   applySettingsToUI();
 }
 async function syncLocalToCloud() {
@@ -941,7 +953,22 @@ function renderRateFunc() {
   $$("[data-rfunc]").forEach(b => b.classList.toggle("active", b.dataset.rfunc === adminFunc));
   $$(".rateFuncName").forEach(e => e.textContent = funcLabel(adminFunc));
   $("#tloCard").hidden = !AT().tlo; $("#btnCopyTier").hidden = adminFunc === "PRIBADI";
-  tierRows("comprehensive"); tierRows("tlo");
+  tierRows("comprehensive"); tierRows("tlo"); renderFlat();
+}
+function renderFlat() {
+  const fl = S.flatByFunc[adminFunc], tlo = FUNC_COVERS[adminFunc].includes("tlo");
+  $$(".flatTlo").forEach(e => e.hidden = !tlo);
+  $("#flatRates").innerHTML = ["truck", "bus", "moto"].map(k => `<tr><td style="font-weight:600;font-size:14px">${esc(catInfo(k).short)}<div class="hint">${esc(catInfo(k).ojk)}</div></td>
+    <td><input type="number" step="0.001" min="0" data-flat="${k}" data-cv="comprehensive" value="${fl[k].comprehensive}"></td>
+    ${tlo ? `<td><input type="number" step="0.001" min="0" data-flat="${k}" data-cv="tlo" value="${fl[k].tlo}"></td>` : ""}</tr>`).join("");
+  $("#flatOjk").textContent = "Acuan OJK Wilayah 1 — " + ["truck", "bus", "moto"].map(k => `${catInfo(k).short}: Comprehensive ${pct(OJK_W1.comprehensive[k][0])}–${pct(OJK_W1.comprehensive[k][1])}${tlo ? `, TLO ${pct(OJK_W1.tlo[k][0])}–${pct(OJK_W1.tlo[k][1])}` : ""}`).join(" · ");
+}
+function fillOjk(idx) {
+  FUNC_COVERS[adminFunc].forEach(cv => {
+    AT()[cv] = OJK_W1[cv].tiers.map(t => ({ max: t[0], rate: t[1 + idx] }));
+    ["truck", "bus", "moto"].forEach(k => S.flatByFunc[adminFunc][k][cv] = OJK_W1[cv][k][idx]);
+  });
+  renderRateFunc(); setDirty(true);
 }
 function readTexts() {
   S.textsByFunc[textFunc] = { deductible: $("#aDeduct").value.trim(), clauses: $("#aClauses").value.trim(), subjectivity: $("#aSubj").value.trim() };
@@ -1019,6 +1046,7 @@ function fillAdmin() {
   renderVeh();
 }
 function readTiers() {
+  $$("[data-flat]").forEach(i => { const f = S.flatByFunc[adminFunc][i.dataset.flat]; if (f) f[i.dataset.cv] = +i.value || 0; });
   for (const key of Object.keys(AT())) {
     $$(`[data-tier="${key}"]`).forEach(inp => {
       const t = AT()[key][+inp.dataset.i]; if (!t) return;
@@ -1052,6 +1080,7 @@ function collectAdmin() {
   S.customExt.forEach((x, i) => { if (!x.label) throw new Error(`Perluasan tambahan nomor ${i + 1}: nama belum diisi.`); });
   readTexts(); S.texts = { disclaimer: $("#aDisc").value.trim() };
   S.pdfWatermark = $("#lgWm").checked;
+  S.vehMerged = [...new Set([...(S.vehMerged || []), "v1.5.2"])];
   S.contact = { name: $("#kName").value.trim(), wa: $("#kWa").value.trim() };
   S.hero = { style: $("#hStyle").value, title: $("#hTitle").value.trim() || DEFAULT_SETTINGS.hero.title, subtitle: $("#hSub").value.trim() || DEFAULT_SETTINGS.hero.subtitle };
   S.company = { brand: $("#cBrand").value.trim(), logo: $("#cLogo").value.trim().toUpperCase(), name: $("#cName").value.trim(), address: $("#cAddr").value.trim(),
@@ -1190,7 +1219,7 @@ function bind() {
   $("#qToFull").addEventListener("click", () => {
     const q = readQuick();
     resetForm(); showTab("calc");
-    setSel($("#fFunc"), q.func); renderCoverSelect($("#fCover"), $("#fFunc").value); setSel($("#fCover"), q.cover); setSel($("#fYear"), q.year);
+    setSel($("#fFunc"), q.func); setSel($("#fCat"), q.cat); renderCoverSelect($("#fCover"), $("#fFunc").value); setSel($("#fCover"), q.cover); setSel($("#fYear"), q.year);
     $("#fPrice").value = q.price ? fmt(q.price) : ""; $("#fAcc").value = q.acc ? fmt(q.acc) : "";
     if (S.paPassPerSeat) $("#fSeats").value = q.seats || 7;
     renderExt("#extList", "ext_", $("#fFunc").value); setExtChecks("ext_", q.ext);
@@ -1438,8 +1467,12 @@ function bindV12() {
     const sc = e.target.closest("[data-scroll]"); if (sc) { const t = $(sc.dataset.scroll); t && t.scrollIntoView({ behavior: "smooth", block: "start" }); }
     const rf = e.target.closest("[data-rfunc]"); if (rf) { readTiers(); adminFunc = rf.dataset.rfunc; renderRateFunc(); }
     const tf = e.target.closest("[data-tfunc]"); if (tf) { readTexts(); textFunc = tf.dataset.tfunc; renderTextFunc(); }
+    const of_ = e.target.closest("[data-ojkfill]");
+    if (of_ && confirm(`Isi semua tabel rate ${funcLabel(adminFunc)} dengan tarif OJK Wilayah 1 ${of_.dataset.ojkfill === "1" ? "batas atas" : "batas bawah"}?`)) { readTiers(); fillOjk(+of_.dataset.ojkfill); toast("Tarif OJK diisi. Klik Simpan untuk menerapkan."); }
     if (e.target.closest("#btnCopyTier") && confirm(`Salin tabel rate Pribadi ke ${funcLabel(adminFunc)}?`)) {
-      Object.keys(AT()).forEach(k => AT()[k] = clone(S.tiersByFunc.PRIBADI[k])); renderRateFunc(); toast("Tabel disalin. Klik Simpan Pengaturan untuk menyimpan.");
+      readTiers();
+      Object.keys(AT()).forEach(k => AT()[k] = clone(S.tiersByFunc.PRIBADI[k]));
+      Object.keys(S.flatByFunc[adminFunc]).forEach(k => FUNC_COVERS[adminFunc].forEach(cv => S.flatByFunc[adminFunc][k][cv] = S.flatByFunc.PRIBADI[k][cv])); renderRateFunc(); toast("Tabel disalin. Klik Simpan Pengaturan untuk menyimpan.");
     }
     if (e.target.closest("#btnCopyText") && confirm(`Salin teks polis Pribadi ke ${funcLabel(textFunc)}?`)) {
       S.textsByFunc[textFunc] = clone(S.textsByFunc.PRIBADI); renderTextFunc(); toast("Teks disalin. Klik Simpan Pengaturan untuk menyimpan.");

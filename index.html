@@ -50,6 +50,7 @@
     <p class="hint" style="margin:-6px 0 12px">Hitung premi tanpa data tertanggung. Hasil tidak disimpan ke riwayat.</p>
     <div class="row">
       <div class="f"><label>Fungsi Kendaraan</label><select id="qFunc"><option value="PRIBADI">Pribadi</option><option value="DINAS">Dinas</option><option value="KOMERSIAL">Komersial</option></select></div>
+      <div class="f"><label>Kategori Kendaraan</label><select id="qCat"></select></div>
       <div class="f"><label>Jenis Pertanggungan</label><select id="qCover"></select></div>
       <div class="f"><label>Tahun Pembuatan</label><select id="qYear"></select></div>
       <div class="f"><label>Harga Kendaraan</label><div class="money"><span>Rp</span><input id="qPrice" inputmode="numeric" placeholder="0"></div></div>
@@ -119,6 +120,7 @@
    <div class="card">
     <h2><span class="n">3</span>Pertanggungan</h2>
     <div class="row">
+      <div class="f"><label>Kategori Tarif</label><select id="fCat"></select></div>
       <div class="f"><label>Jenis Pertanggungan</label><select id="fCover"></select></div>
       <div class="f"><label>Wilayah</label><input id="fRegion" readonly></div>
       <div class="f"><label>Harga Kendaraan *</label><div class="money"><span>Rp</span><input id="fPrice" inputmode="numeric" placeholder="0"></div></div>
@@ -235,13 +237,20 @@
         <p class="hint" style="margin-top:-6px">Setiap fungsi punya tabel rate kasko sendiri. Kendaraan komersial hanya bisa memilih Comprehensive.</p>
         <div class="seg"><button data-rfunc="PRIBADI">Pribadi</button><button data-rfunc="DINAS">Dinas</button><button data-rfunc="KOMERSIAL">Komersial</button></div>
         <div class="btns"><button class="btn sm" id="btnCopyTier" style="flex:0 1 auto">Salin tabel dari Pribadi</button></div>
+        <p class="hint" style="margin:12px 0 4px">Isi semua tabel fungsi <b class="rateFuncName"></b> dengan tarif OJK Wilayah 1:</p>
+        <div class="btns" style="margin-top:4px"><button class="btn sm" data-ojkfill="0" style="flex:0 1 auto">Batas bawah</button><button class="btn sm" data-ojkfill="1" style="flex:0 1 auto">Batas atas</button></div>
       </div>
-      <div class="card"><h2>Rate Comprehensive — <span class="rateFuncName"></span></h2>
+      <div class="card"><h2>Rate Comprehensive Mobil Penumpang — <span class="rateFuncName"></span></h2>
+        <p class="hint" style="margin-top:-6px">Non bus &amp; non truk (OJK kategori 1–5), berjenjang menurut harga pertanggungan.</p>
         <table class="tier"><thead><tr><th style="text-align:left">Harga pertanggungan s.d (juta) — kosong = ke atas</th><th style="text-align:left">Rate %</th><th></th></tr></thead><tbody id="tier-comprehensive"></tbody></table>
         <button class="btn sm" data-addtier="comprehensive" style="margin-top:8px">+ Tambah baris</button></div>
-      <div class="card" id="tloCard"><h2>Rate Total Loss Only (TLO) — <span class="rateFuncName"></span></h2>
+      <div class="card" id="tloCard"><h2>Rate TLO Mobil Penumpang — <span class="rateFuncName"></span></h2>
         <table class="tier"><thead><tr><th style="text-align:left">Harga pertanggungan s.d (juta) — kosong = ke atas</th><th style="text-align:left">Rate %</th><th></th></tr></thead><tbody id="tier-tlo"></tbody></table>
         <button class="btn sm" data-addtier="tlo" style="margin-top:8px">+ Tambah baris</button></div>
+      <div class="card"><h2>Rate Truk, Bus &amp; Roda 2 — <span class="rateFuncName"></span></h2>
+        <p class="hint" style="margin-top:-6px">Tarif tetap untuk semua harga pertanggungan (OJK kategori 6, 7, 8).</p>
+        <table class="tier"><thead><tr><th style="text-align:left">Kategori</th><th style="text-align:left">Comprehensive %</th><th style="text-align:left" class="flatTlo">TLO %</th></tr></thead><tbody id="flatRates"></tbody></table>
+        <p class="hint" id="flatOjk"></p></div>
       <div class="card"><h2>Loading Usia Kendaraan</h2>
         <div class="row c3">
           <div class="f"><label>Aktif</label><select id="aAgeOn"><option value="1">Ya</option><option value="0">Tidak</option></select></div>
@@ -426,7 +435,7 @@
 </section>
 </main>
 
-<footer><div id="ftContact"></div>Copyright © SRISP 2026 · v1.5.1</footer>
+<footer><div id="ftContact"></div>Copyright © SRISP 2026 · v1.5.2</footer>
 
 <div class="modal" id="iosModal" hidden>
   <div class="card">

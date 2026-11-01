@@ -161,7 +161,26 @@ function parseVehicles(raw) {
   });
   return out;
 }
-export const DEFAULT_VEHICLES = parseVehicles(VEHICLE_RAW);
+/* Kendaraan tambahan v1.5.2: truk, bus, roda 2. Ditambahkan sekali ke daftar yang sudah tersimpan. */
+const VEHICLE_RAW_152 = `
+Mitsubishi Fuso|Truk|Canter FE 71;Canter FE 74 HD;Canter FE 84G;Fighter X FM 65;Fighter X FN 62
+Hino|Truk|Dutro 110 SD;Dutro 130 HD;Dutro 136 HD;Ranger FG 235;Ranger FL 260
+Isuzu|Truk|Elf NMR 71 HD;Elf NLR 55 T;Elf NPS 75;Giga FVR 34;Giga FVZ 34
+Toyota|Truk|Dyna 110 ET;Dyna 130 HT
+UD Trucks|Truk|Quester CWE 280;Kuzer RKE 150
+Hino|Bus|RK8 R260;RN 285;FB 130 Microbus
+Mercedes-Benz|Bus|OH 1526;OH 1626
+Isuzu|Bus|NQR 71 Bus;Elf NLR B Microbus
+Mitsubishi Fuso|Bus|Rosa;FE 84 BC Microbus
+Honda|Motor|BeAT CBS;BeAT Street;Scoopy;Genio;Vario 125;Vario 160 ABS;PCX 160 ABS;ADV 160 ABS;Stylo 160;CB150R Streetfire;CBR150R;CRF150L;CBR250RR
+Yamaha|Motor|Mio M3 125;Fazzio Hybrid;Gear 125;FreeGo 125;Aerox 155;NMAX 155;Lexi LX 155;XMAX 250;Vixion;R15 V4;MT-15;MT-25;WR155R
+Suzuki|Motor|Nex II;Address FI;Burgman Street 125EX;Satria F150;GSX-R150;GSX-S150
+Kawasaki|Motor|W175;KLX 150;KLX 230;Ninja 250;Ninja ZX-25R;Z250
+Vespa|Motor|LX 125;Sprint S 150;Primavera S 150;GTS Super 150
+TVS|Motor|Ntorq 125;Apache RTR 200
+`;
+export const NEW_VEHICLES_152 = parseVehicles(VEHICLE_RAW_152);
+export const DEFAULT_VEHICLES = [...parseVehicles(VEHICLE_RAW), ...NEW_VEHICLES_152];
 
 /* Fungsi kendaraan: tiap fungsi punya tabel rate kasko & teks polis sendiri. Komersial tanpa TLO. */
 export const FUNCS = [{ key: "PRIBADI", label: "Pribadi" }, { key: "DINAS", label: "Dinas" }, { key: "KOMERSIAL", label: "Komersial" }];
@@ -185,4 +204,30 @@ export const FUNC_COVERS = { PRIBADI: ["comprehensive", "tlo"], DINAS: ["compreh
     title: "Perlindungan Menyeluruh untuk Kendaraan Anda",
     subtitle: "Asuransi kendaraan dengan rincian premi yang jelas, pilihan jaminan lengkap, dan pendampingan dari pengajuan hingga polis terbit."
   };
+})();
+
+/* Kategori tarif OJK (Wilayah 1). "car" memakai tabel berjenjang per harga; kategori lain tarif tetap. */
+export const CATS = [
+  { key: "car", label: "Mobil penumpang (non bus & non truk)", short: "Mobil penumpang", ojk: "Kategori 1–5" },
+  { key: "truck", label: "Truk & Pickup", short: "Truk & Pickup", ojk: "Kategori 6" },
+  { key: "bus", label: "Bus", short: "Bus", ojk: "Kategori 7" },
+  { key: "moto", label: "Kendaraan roda 2", short: "Roda 2", ojk: "Kategori 8" }
+];
+/* Tarif OJK Wilayah 1: [batas bawah, batas atas] */
+export const OJK_W1 = {
+  comprehensive: { tiers: [[125e6, 3.82, 4.20], [200e6, 2.67, 2.94], [400e6, 2.18, 2.40], [800e6, 1.20, 1.32], [null, 1.05, 1.16]], truck: [2.42, 2.67], bus: [1.04, 1.14], moto: [3.18, 3.50] },
+  tlo: { tiers: [[125e6, 0.47, 0.56], [200e6, 0.63, 0.69], [400e6, 0.41, 0.46], [800e6, 0.25, 0.30], [null, 0.20, 0.24]], truck: [0.88, 1.07], bus: [0.23, 0.29], moto: [1.76, 2.11] }
+};
+/* Jenis kendaraan → kategori tarif */
+export const catOfType = t => ({ pickup: "truck", truk: "truck", truck: "truck", bus: "bus", motor: "moto" })[String(t || "").trim().toLowerCase()] || "car";
+(() => {
+  const S = DEFAULT_SETTINGS; S.flatByFunc = {};
+  FUNCS.forEach(f => {
+    S.flatByFunc[f.key] = {};
+    ["truck", "bus", "moto"].forEach(k => {
+      S.flatByFunc[f.key][k] = {};
+      FUNC_COVERS[f.key].forEach(cv => S.flatByFunc[f.key][k][cv] = OJK_W1[cv][k][1]);   /* bawaan: batas atas */
+    });
+  });
+  S.vehMerged = [];
 })();
