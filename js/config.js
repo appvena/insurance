@@ -12,5 +12,5 @@ export const APP_VERSION = "v1.7";
 /* Email akun login. Harus sama PERSIS dengan akun di Firebase Authentication. */
 export const ADMIN_LOGIN_EMAIL = "alex@insurance.com";
 /* Super admin: dibuka dengan 5x ketuk pada versi di footer. Periksa ejaan — ini email akun Firebase, bukan sekadar label. */
-export const SUPER_ADMIN_EMAIL = "saidrezaifransyahputra@gmail.com";
+export const SUPER_ADMIN_EMAIL = "saidrezairfansyahputra@gmail.com";
 export const COPYRIGHT = "Copyright © SRISP 2026";

@@ -8,7 +8,7 @@ service cloud.firestore {
     // Super admin (pemilik): akses penuh + melihat Log Aktivitas.
     function isSuper() {
       return request.auth != null
-        && request.auth.token.email == "saidrezaifransyahputra@gmail.com";
+        && request.auth.token.email == "saidrezairfansyahputra@gmail.com";
     }
     function isAdmin() {
       return request.auth != null

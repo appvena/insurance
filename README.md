@@ -21,7 +21,7 @@ panduan/              ← JANGAN di-upload ke GitHub (supaya tidak bisa dibuka p
 ## Yang baru di v1.7
 ### Super Admin (pemilik)
 - Dibuka dengan **mengetuk tulisan versi di footer 5 kali**. Email super admin otomatis terisi, Anda tinggal mengisi password.
-- Email super admin: `saidrezaifransyahputra@gmail.com`. **Periksa ejaannya** di `js/config.js` (`SUPER_ADMIN_EMAIL`) dan di `firestore.rules` — harus sama persis dengan akun yang Anda buat di Firebase Authentication. (Catatan: email akun Google Anda tampak `saidrezairfansyahputra@gmail.com`; bila berbeda, samakan keduanya.)
+- Email super admin: `saidrezairfansyahputra@gmail.com`. **Periksa ejaannya** di `js/config.js` (`SUPER_ADMIN_EMAIL`) dan di `firestore.rules` — harus sama persis dengan akun yang Anda buat di Firebase Authentication.
 - Buat akunnya di Firebase → Authentication → Add user, dengan email itu dan password pilihan Anda.
 - Super admin punya semua hak admin, plus menu **Log Aktivitas**.
 
@@ -37,7 +37,7 @@ panduan/              ← JANGAN di-upload ke GitHub (supaya tidak bisa dibuka p
 - 20 cadangan terakhir disimpan dan bisa dipulihkan.
 
 ### Setelah upload v1.7 — WAJIB
-1. **Firebase → Authentication → Add user**: buat akun super admin (`saidrezaifransyahputra@gmail.com`) + password.
+1. **Firebase → Authentication → Add user**: buat akun super admin (`saidrezairfansyahputra@gmail.com`) + password.
 2. **Firestore → Rules**: tempel ulang `panduan/firestore.rules` (ada aturan baru `isSuper()` dan koleksi `logs`), isi kembali UID admin, lalu **Publish**. Tanpa ini, Log Aktivitas tidak bisa dibaca.
 3. Agar lokasi akurat berfungsi, situs harus diakses lewat **https** (GitHub Pages sudah https).
 
