@@ -1,4 +1,4 @@
-/* Vehicle Protection — v1.5.3 · Copyright © SRISP 2026 */
+/* Vehicle Protection — v1.6 · Copyright © SRISP 2026 */
 import { firebaseConfig, FB_VER, APP_VERSION, COPYRIGHT } from "./config.js";
 import { EXT_DEFS, COVER_LABEL, DEFAULT_SETTINGS, DEFAULT_VEHICLES, FUNCS, FUNC_COVERS, CATS, OJK_W1, catOfType, NEW_VEHICLES_152 } from "./data.js";
 
@@ -16,6 +16,20 @@ function toast(msg, type = "", ms = 3200) {
   const t = $("#toast"); t.textContent = msg; t.className = "toast show " + type;
   clearTimeout(toast._t); toast._t = setTimeout(() => t.className = "toast", ms);
 }
+/* ---- Animasi loading: garis progres atas & tombol berputar ---- */
+let busyN = 0;
+function busy(d) { busyN = Math.max(0, busyN + d); const b = document.getElementById("topbar"); if (b) b.classList.toggle("on", busyN > 0); }
+function btnLoad(b, on, txt) {
+  if (!b) return;
+  if (on) { if (!b.dataset.txt) b.dataset.txt = b.textContent; if (txt) b.textContent = txt; b.classList.add("loading"); b.disabled = true; }
+  else { if (b.dataset.txt) b.textContent = b.dataset.txt; delete b.dataset.txt; b.classList.remove("loading"); b.disabled = false; }
+}
+async function withBtn(b, fn, txt) { if (b && b.classList.contains("loading")) return; btnLoad(b, true, txt); try { return await fn(); } finally { btnLoad(b, false); } }
+function hideSplash() {
+  const s = document.getElementById("splash"); if (!s) return;
+  setTimeout(() => { s.classList.add("out"); setTimeout(() => s.remove(), 400); }, Math.max(0, 450 - performance.now()));
+}
+const SKEL = n => Array.from({ length: n }, () => `<div class="skrow"><div class="sk" style="width:46%"></div><div class="sk" style="width:72%"></div><div class="sk" style="width:30%"></div></div>`).join("");
 const LS = {
   get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
@@ -58,7 +72,7 @@ const cxChosen = inp => CX(inp.func).filter(x => (inp.ext || {})["c_" + x.id]);
 let VEH = Array.isArray(LS.get("ai_vehicles")) ? LS.get("ai_vehicles") : clone(DEFAULT_VEHICLES);
 mergeNewVehicles();
 let fb = null, user = null, last = null, lastQuick = null;
-let currentId = null, currentRef = null, cloudHist = null;
+let currentId = null, currentRef = null;
 let authResolved = false, wantedTab = null, draftsReady = false;
 
 /* ====================== PERHITUNGAN ====================== */
@@ -100,7 +114,8 @@ function calculate(S, inp) {
   if (inp.tjh > 0) add("Tanggung Jawab Hukum Pihak III", inp.tjh, +S.tjhRate, "liab");
   if (inp.paD > 0) add("Kecelakaan Diri (PA) Pengemudi", inp.paD, +S.paDriverRate, "liab");
   if (inp.paP > 0) {
-    const n = S.paPassPerSeat ? Math.max(1, (inp.seats || 1) - 1) : 1;
+    const seats = cat === "moto" ? 2 : inp.seats;   /* roda 2: maksimal 1 penumpang */
+    const n = S.paPassPerSeat ? Math.max(1, (seats || 1) - 1) : 1;
     add("Kecelakaan Diri (PA) Penumpang" + (n > 1 ? ` (${n} orang)` : ""), inp.paP * n, +S.paPassRate, "liab");
   }
   const gross = out.reduce((a, l) => a + l.prem, 0);
@@ -333,7 +348,7 @@ function applySettingsToUI() {
   $("#discWrap").hidden = !discOn; $("#qDiscWrap").hidden = !discOn;
   $$(".discMax").forEach(e => e.textContent = S.maxDiscount);
   $("#qSeatsWrap").hidden = !(S.paPassPerSeat && D().paP);
-  [$("#fCat"), $("#qCat")].forEach(sel => { if (!sel.options.length) fillSelect(sel, CATS.map(c => ({ v: c.key, t: c.label }))); });
+  [$("#fCat"), $("#qCat")].forEach(sel => { if (!sel.options.length) fillSelect(sel, CATS.map(c => ({ v: c.key, t: c.short }))); });
   renderCoverSelect($("#fCover"), $("#fFunc").value); renderCoverSelect($("#qCover"), $("#qFunc").value);
   renderExt("#extList", "ext_", $("#fFunc").value); renderExt("#qExtList", "qext_", $("#qFunc").value);
   renderLimitSelects({ tjh: "#fTjh", paD: "#fPaD", paP: "#fPaP" });
@@ -492,7 +507,7 @@ async function sendQuestion(f) {
   if (message.length < 5) return toast("Pertanyaan terlalu singkat.", "err");
   if (Date.now() - (+LS.get("ai_ask_last") || 0) < 60000) return toast("Tunggu sebentar sebelum mengirim pertanyaan lagi.", "err");
   if (!fb || !navigator.onLine) return toast("Tidak dapat mengirim. Periksa koneksi internet.", "err");
-  const btn = f.querySelector("button[type=submit]"); btn.disabled = true; btn.textContent = "Mengirim…";
+  const btn = f.querySelector("button[type=submit]"); btnLoad(btn, true, "Mengirim…");
   try {
     await fb.F.addDoc(fb.F.collection(fb.db, "inbox"), { name: name.slice(0, 80), phone: phone.slice(0, 20), message: message.slice(0, 1000), status: "baru", createdAt: fb.F.serverTimestamp() });
     LS.set("ai_ask_last", Date.now()); f.reset();
@@ -500,15 +515,15 @@ async function sendQuestion(f) {
     ok.textContent = `Terima kasih, ${name}. Pertanyaan Anda sudah kami terima dan akan dibalas melalui WhatsApp ke ${phone}.`;
     toast("Pertanyaan terkirim.", "ok");
   } catch { toast("Pertanyaan gagal dikirim. Coba lagi.", "err"); }
-  finally { btn.disabled = false; btn.textContent = "Kirim Pertanyaan"; }
+  finally { btnLoad(btn, false); }
 }
 
 /* ====================== INBOX ADMIN ====================== */
 let INBOX = [], inboxUnsub = null, inboxFirst = true;
 function startInbox() {
   stopInbox(); if (!fb || !user) return;
-  const { collection, query, orderBy, limit, onSnapshot } = fb.F; inboxFirst = true;
-  inboxUnsub = onSnapshot(query(collection(fb.db, "inbox"), orderBy("createdAt", "desc"), limit(300)), snap => {
+  const { collection, query, orderBy, limit, onSnapshot } = fb.F; inboxFirst = true; $("#inboxList").innerHTML = SKEL(2);
+  inboxUnsub = onSnapshot(query(collection(fb.db, "inbox"), orderBy("createdAt", "desc"), limit(100)), snap => {
     const before = new Set(INBOX.map(x => x.id));
     INBOX = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     if (!inboxFirst) { const fresh = INBOX.filter(x => !before.has(x.id) && x.status !== "dibalas"); if (fresh.length) toast(`Pertanyaan baru dari ${fresh[0].name}`, "ok", 5000); }
@@ -558,9 +573,59 @@ function compressImage(file) {
 }
 
 /* ====================== RIWAYAT ====================== */
-const HKEY = "ai_history";
-const localHist = () => LS.get(HKEY) || [];
-const setLocalHist = a => LS.set(HKEY, a.slice(0, 300));
+const HKEY = "ai_history", HSYNC = "ai_hist_sync", HMAX = 1500;
+const tsOf = r => r.updatedAt || r.savedAt || "";
+const localAll = () => LS.get(HKEY) || [];                 /* termasuk tanda hapus (tombstone) */
+const localHist = () => localAll().filter(r => !r.deleted);
+function setLocalAll(arr) {
+  /* Simpan maksimal HMAX data. Polis Deal yang masih/baru berakhir selalu dipertahankan untuk pengingat perpanjangan. */
+  const now = Date.now(), keep = [], rest = [];
+  arr.forEach(r => {
+    if (r.deleted) { if (now - new Date(tsOf(r)).getTime() < 90 * 864e5) keep.push(r); return; }
+    if (r._dirty || (r.status === "deal" && r.inp && r.inp.end && new Date(r.inp.end).getTime() > now - 45 * 864e5)) keep.push(r); else rest.push(r);
+  });
+  rest.sort((x, y) => tsOf(y).localeCompare(tsOf(x)));
+  LS.set(HKEY, [...keep, ...rest.slice(0, Math.max(0, HMAX - keep.length))]);
+}
+function putLocal(rec) { const arr = localAll().filter(x => x.id !== rec.id); arr.unshift(rec); setLocalAll(arr); }
+/* Kirim satu data ke cloud. Gagal/offline → tetap ditandai _dirty dan dikirim ulang saat sinkron berikutnya. */
+function pushCloud(rec) {
+  if (!fb || !user) return Promise.resolve(false);
+  const { _dirty, ...data } = rec;
+  return fb.F.setDoc(fb.F.doc(fb.db, "quotes", rec.id), { ...data, srvAt: fb.F.serverTimestamp() })
+    .then(() => { const cur = localAll().find(x => x.id === rec.id); if (cur && cur._dirty && tsOf(cur) === tsOf(rec)) { delete cur._dirty; putLocal(cur); } updateSyncLabel(); return true; })
+    .catch(() => false);
+}
+function writeRecord(rec) { rec._dirty = true; putLocal(rec); pushCloud(rec); return rec; }
+let histSync = null;
+async function syncHistory(force = false) {
+  if (!fb || !user) return;
+  const st = LS.get(HSYNC) || {};
+  if (!force && st.uid === user.uid && Date.now() - (st.last || 0) < 60000) return;
+  if (histSync) return histSync;
+  histSync = (async () => {
+    busy(1); if (!$("#tab-hist").hidden && !localHist().length) $("#hList").innerHTML = SKEL(3);
+    try {
+      /* 1) kirim data yang belum tersinkron */
+      await Promise.all(localAll().filter(r => r._dirty).map(pushCloud));
+      /* 2) ambil hanya data yang berubah sejak sinkron terakhir (hemat kuota baca) */
+      const { collection, query, where, getDocs, Timestamp } = fb.F;
+      const incr = st.uid === user.uid && st.at;
+      const snap = await getDocs(incr ? query(collection(fb.db, "quotes"), where("srvAt", ">", Timestamp.fromMillis(st.at))) : collection(fb.db, "quotes"));
+      let maxAt = incr ? st.at : 0;
+      const map = new Map(localAll().map(r => [r.id, r]));
+      snap.docs.forEach(d => {
+        const c = { ...d.data(), id: d.data().id || d.id };
+        const at = c.srvAt && c.srvAt.toMillis ? c.srvAt.toMillis() : 0; if (at > maxAt) maxAt = at; delete c.srvAt;
+        const l = map.get(c.id);
+        if (!l || tsOf(l) <= tsOf(c)) map.set(c.id, c);
+      });
+      setLocalAll([...map.values()]);
+      LS.set(HSYNC, { uid: user.uid, at: maxAt, last: Date.now() });
+    } catch {} finally { busy(-1); }
+  })().finally(() => { histSync = null; if (!$("#tab-hist").hidden) renderHist(); else renderRenew(); });
+  return histSync;
+}
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 function quoteRef() {
   const d = new Date(), p = n => String(n).padStart(2, "0");
@@ -573,29 +638,19 @@ function saveRecord(silent = false) {
   const now = new Date().toISOString();
   const rec = { ...old, id: currentId, ref: currentRef, savedAt: old.savedAt || now, updatedAt: now, inp: clone(last.inp),
     total: last.r.total, gross: last.r.gross, si: last.r.si, by: user?.email || old.by || "", status: old.status || "baru" };
-  const arr = localHist().filter(x => x.id !== rec.id); arr.unshift(rec); setLocalHist(arr);
-  if (cloudHist) { cloudHist = cloudHist.filter(x => x.id !== rec.id); cloudHist.unshift(rec); }
-  if (fb && user) fb.F.setDoc(fb.F.doc(fb.db, "quotes", rec.id), rec).catch(() => {});
+  writeRecord(rec);
   updateSaveState();
   if (!silent) toast("Perhitungan tersimpan ke riwayat.", "ok");
   if (!$("#tab-hist").hidden) renderHist();
   return rec;
 }
-async function loadHistory() {
-  if (fb && user) {
-    try {
-      const { collection, query, orderBy, limit, getDocs } = fb.F;
-      const snap = await getDocs(query(collection(fb.db, "quotes"), orderBy("savedAt", "desc"), limit(300)));
-      cloudHist = snap.docs.map(d => d.data());
-    } catch { cloudHist = null; }
-  } else cloudHist = null;
-  renderHist();
+function loadHistory() { renderHist(); syncHistory(); }
+function updateSyncLabel() {
+  const pend = localAll().filter(r => r._dirty).length;
+  $("#hSrc").textContent = user ? (pend ? `${pend} data menunggu sinkron` : "Tersimpan di perangkat ini dan tersinkron") : "Tersimpan di perangkat ini";
 }
 function histItems() {
-  const map = new Map();
-  const ts = r => r.updatedAt || r.savedAt || "";
-  [...(cloudHist || []), ...localHist()].forEach(r => { const o = map.get(r.id); if (!o || ts(o) < ts(r)) map.set(r.id, r); });
-  return [...map.values()].sort((a, b) => (b.savedAt || "").localeCompare(a.savedAt || ""));
+  return localHist().sort((a, b) => (b.savedAt || "").localeCompare(a.savedAt || ""));
 }
 function renderHist() {
   const q = $("#hFilter").value.trim().toLowerCase();
@@ -605,14 +660,14 @@ function renderHist() {
     && (!fs || (fs === "exp" ? isExpired(r) : (r.status || "baru") === fs)));
   renderRenew();
   $("#hCount").textContent = `${all.length} data`;
-  $("#hSrc").textContent = cloudHist ? "Tersimpan dan tersinkron di semua perangkat Anda" : "Tersimpan di perangkat ini";
+  updateSyncLabel();
   $("#hList").innerHTML = rows.map(r => {
     const d = new Date(r.savedAt).toLocaleString("id-ID", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
     const veh = `${r.inp.brand || ""} ${r.inp.model || ""}`.trim();
     return `<div class="hitem"><div class="hmain"><b>${esc(r.inp.name || "-")}</b>
       <div class="hint">${esc(veh || "-")} (${esc(r.inp.year)})${r.inp.plate ? " · " + esc(r.inp.plate) : ""}</div>
       <div class="hint">${esc(r.ref)} · ${esc(d)}</div>
-      <div class="hstat">${stChip(r)}<select data-hst="${esc(r.id)}" aria-label="Ubah status">${ST_OPTS.map(o => `<option value="${o.v}" ${(r.status || "baru") === o.v ? "selected" : ""}>${o.t}</option>`).join("")}</select></div></div>
+      <div class="hstat">${isExpired(r) ? `<span class="st st-exp">Kedaluwarsa</span>` : ""}<select class="stsel st-${esc(r.status || "baru")}" data-hst="${esc(r.id)}" aria-label="Ubah status">${ST_OPTS.map(o => `<option value="${o.v}" ${(r.status || "baru") === o.v ? "selected" : ""}>${o.t}</option>`).join("")}</select></div></div>
       <div class="hright"><b>${rp(r.total)}</b><div class="hact">
         <button class="btn sm" data-hopen="${esc(r.id)}">Buka</button>
         <button class="btn sm" data-hpdf="${esc(r.id)}">PDF</button>
@@ -629,10 +684,7 @@ function stChip(r) {
 function updateRecord(id, patch) {
   const r = histItems().find(x => x.id === id); if (!r) return null;
   const rec = { ...r, ...patch, updatedAt: new Date().toISOString() };
-  const arr = localHist().filter(x => x.id !== id); arr.unshift(rec); setLocalHist(arr);
-  if (cloudHist) { cloudHist = cloudHist.filter(x => x.id !== id); cloudHist.unshift(rec); }
-  if (fb && user) fb.F.setDoc(fb.F.doc(fb.db, "quotes", id), rec).catch(() => {});
-  return rec;
+  return writeRecord(rec);
 }
 /* ---- Pengingat perpanjangan: polis Deal yang akan/baru berakhir ---- */
 const daysTo = s => Math.round((new Date(s + "T00:00:00") - new Date(new Date().toDateString())) / 864e5);
@@ -679,9 +731,8 @@ function openRecord(id) {
 }
 async function deleteRecord(id) {
   const r = histItems().find(x => x.id === id); if (!r || !confirm(`Hapus perhitungan ${r.inp.name || r.ref}?`)) return;
-  setLocalHist(localHist().filter(x => x.id !== id));
-  if (cloudHist) cloudHist = cloudHist.filter(x => x.id !== id);
-  if (fb && user) { try { await fb.F.deleteDoc(fb.F.doc(fb.db, "quotes", id)); } catch { toast("Gagal menghapus. Coba lagi.", "err"); } }
+  /* hapus lunak: tanda hapus ikut tersinkron ke perangkat lain, isi data tidak disimpan lagi */
+  writeRecord({ id, deleted: true, savedAt: r.savedAt, updatedAt: new Date().toISOString() });
   if (currentId === id) { currentId = null; currentRef = null; updateSaveState(); }
   renderHist(); toast("Dihapus.");
 }
@@ -874,12 +925,17 @@ function prepare() {
   return pdf;
 }
 function markSent() { if (!currentId) return; const r = histItems().find(x => x.id === currentId); if (r && (r.status || "baru") === "baru") updateRecord(currentId, { status: "dikirim" }); }
-async function doPdf() {
-  if (!pdfReady()) { toast("Menyiapkan PDF…"); try { await loadPdfLibs(); } catch { return toast("PDF belum bisa dibuat. Periksa koneksi internet.", "err"); } }
-  const pdf = prepare(); if (!pdf) return; download(pdf.blob, pdf.name); toast("PDF berhasil dibuat.", "ok");
+function doPdf() {
+  return withBtn($("#btnPdf"), async () => {
+    if (!pdfReady()) { try { await loadPdfLibs(); } catch { return toast("PDF belum bisa dibuat. Periksa koneksi internet.", "err"); } }
+    await new Promise(r => setTimeout(r, 30));
+    const pdf = prepare(); if (!pdf) return; download(pdf.blob, pdf.name); toast("PDF berhasil dibuat.", "ok");
+  }, "Membuat PDF…");
 }
-async function doWa() {
-  if (!pdfReady()) { toast("Menyiapkan PDF…"); try { await loadPdfLibs(); } catch { return toast("PDF belum bisa dibuat. Periksa koneksi internet.", "err"); } }
+function doWa() { return withBtn($("#btnWa"), doWaInner, "Menyiapkan…"); }
+async function doWaInner() {
+  if (!pdfReady()) { try { await loadPdfLibs(); } catch { return toast("PDF belum bisa dibuat. Periksa koneksi internet.", "err"); } }
+  await new Promise(r => setTimeout(r, 30));
   const pdf = prepare(); if (!pdf) return;
   const text = summaryText(last.inp, last.r, "PENAWARAN ASURANSI KENDARAAN") + `\n\nNo. Ref: ${pdf.ref}\nRincian lengkap pada PDF terlampir.`;
   const file = new File([pdf.blob], pdf.name, { type: "application/pdf" });
@@ -899,13 +955,16 @@ async function initFirebase() {
     const base = `https://www.gstatic.com/firebasejs/${FB_VER}/`;
     const [A0, A, F] = await Promise.all([import(base + "firebase-app.js"), import(base + "firebase-auth.js"), import(base + "firebase-firestore.js")]);
     const app = A0.initializeApp(firebaseConfig);
-    fb = { auth: A.getAuth(app), db: F.getFirestore(app), A, F };
+    let db;
+    try { db = F.initializeFirestore(app, { localCache: F.persistentLocalCache({ tabManager: F.persistentMultipleTabManager() }) }); }   /* data cloud juga tersimpan di perangkat */
+    catch { db = F.getFirestore(app); }
+    fb = { auth: A.getAuth(app), db, A, F };
     A.onAuthStateChanged(fb.auth, u => {
-      user = u; authResolved = true;
+      const prev = user; user = u; authResolved = true;
       if (u) LS.set("ai_authed", u.email); else { try { localStorage.removeItem("ai_authed"); } catch {} }
       applyTabs(); renderAdminGate();
-      if (!$("#tab-hist").hidden) loadHistory(); else cloudHist = null;
-      if (u) { syncLocalToCloud(); startInbox(); } else stopInbox();
+      if (u) { syncHistory(!prev); startInbox(); if (!prev) loadRemote(true).catch(() => {}); } else stopInbox();
+      if (!$("#tab-hist").hidden) renderHist();
     });
     await loadRemote();
     setNet(true, "");
@@ -913,19 +972,30 @@ async function initFirebase() {
     setNet(false, navigator.onLine ? "" : "Offline"); renderAdminGate();
   }
 }
-async function loadRemote() {
-  const { doc, getDoc } = fb.F;
-  const [s, v, hr] = await Promise.all([getDoc(doc(fb.db, "config", "settings")), getDoc(doc(fb.db, "config", "vehicles")), getDoc(doc(fb.db, "config", "hero")).catch(() => null)]);
-  if (s.exists()) { S = normalizeSettings(s.data()); LS.set("ai_settings", S); }
-  if (hr && hr.exists() && !heroDirty) { HERO_IMG = hr.data().image || ""; LS.set("ai_hero", HERO_IMG); }
-  try { const lg = await getDoc(doc(fb.db, "config", "logo")); if (lg.exists() && !logoDirty) { LOGO_IMG = lg.data().image || ""; LS.set("ai_logo", LOGO_IMG); } } catch {}
-  if (v.exists() && Array.isArray(v.data().list) && v.data().list.length) { VEH = v.data().list; mergeNewVehicles(); LS.set("ai_vehicles", VEH); }
-  applySettingsToUI();
+/* Pengaturan hemat kuota: baca 1 dokumen kecil "meta" berisi nomor versi.
+   Dokumen besar (pengaturan, kendaraan, foto header, logo) hanya diunduh jika versinya berubah. */
+const MKEY = "ai_meta";
+async function loadRemote(force = false) {
+  if (!fb) return;
+  if (admDirty) return;                              /* jangan timpa isian admin yang belum disimpan */
+  const lm = LS.get(MKEY) || {};
+  if (!force && !user && lm.checked && Date.now() - lm.checked < 5 * 60000) return;
+  const { doc, getDoc } = fb.F, db = fb.db;
+  busy(1);
+  try {
+    const ms = await getDoc(doc(db, "config", "meta")); const m = ms.exists() ? ms.data() : null;
+    const need = k => !m || !m[k] || m[k] !== lm[k];
+    const jobs = [];
+    if (need("settings")) jobs.push(getDoc(doc(db, "config", "settings")).then(s => { if (s.exists()) { S = normalizeSettings(s.data()); LS.set("ai_settings", S); } }));
+    if (need("vehicles")) jobs.push(getDoc(doc(db, "config", "vehicles")).then(v => { if (v.exists() && Array.isArray(v.data().list) && v.data().list.length) { VEH = v.data().list; mergeNewVehicles(); LS.set("ai_vehicles", VEH); } }));
+    if (need("hero") && !heroDirty) jobs.push(getDoc(doc(db, "config", "hero")).then(h => { HERO_IMG = h.exists() ? h.data().image || "" : ""; LS.set("ai_hero", HERO_IMG); }).catch(() => {}));
+    if (need("logo") && !logoDirty) jobs.push(getDoc(doc(db, "config", "logo")).then(l => { LOGO_IMG = l.exists() ? l.data().image || "" : ""; LS.set("ai_logo", LOGO_IMG); }).catch(() => {}));
+    await Promise.all(jobs);
+    LS.set(MKEY, { ...(m || {}), checked: Date.now() });
+    if (jobs.length) { applySettingsToUI(); if (fillAdmin.done) fillAdmin(); }
+  } finally { busy(-1); }
 }
-async function syncLocalToCloud() {
-  const items = localHist(); if (!items.length || !fb || !user) return;
-  try { await Promise.all(items.map(r => fb.F.setDoc(fb.F.doc(fb.db, "quotes", r.id), r))); } catch {}
-}
+const hashStr = s => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return h; };
 
 /* ====================== ADMIN ====================== */
 function renderAdminGate() {
@@ -1088,30 +1158,39 @@ function collectAdmin() {
 }
 async function saveAll() {
   try { collectAdmin(); } catch (e) { return toast(e.message, "err"); }
-  const btn = $("#btnSave"); btn.disabled = true; btn.textContent = "Menyimpan…";
+  const btn = $("#btnSave"); btnLoad(btn, true, "Menyimpan…"); busy(1);
   try {
-    const { doc, setDoc, serverTimestamp } = fb.F;
-    const meta = { updatedAt: serverTimestamp(), updatedBy: user.email };
-    await setDoc(doc(fb.db, "config", "settings"), { ...clone(S), ...meta });
-    await setDoc(doc(fb.db, "config", "vehicles"), { list: VEH, ...meta });
-    if (heroDirty) { await setDoc(doc(fb.db, "config", "hero"), { image: HERO_IMG, ...meta }); heroDirty = false; LS.set("ai_hero", HERO_IMG); }
-    if (logoDirty) { await setDoc(doc(fb.db, "config", "logo"), { image: LOGO_IMG, ...meta }); logoDirty = false; LS.set("ai_logo", LOGO_IMG); }
+    const { doc, setDoc, serverTimestamp } = fb.F, db = fb.db;
+    const stamp = Date.now(), lm = LS.get(MKEY) || {}, nm = { settings: lm.settings || 0, vehicles: lm.vehicles || 0, hero: lm.hero || 0, logo: lm.logo || 0 };
+    const firstClean = !S.clean16; S.clean16 = true;      /* tulis ulang sekali untuk menghapus email admin dari data publik lama */
+    const t = { updatedAt: serverTimestamp() };           /* tidak lagi menyimpan email admin di data yang bisa dibaca publik */
+    await setDoc(doc(db, "config", "settings"), { ...clone(S), ...t }); nm.settings = stamp;
+    const vh = hashStr(JSON.stringify(VEH));
+    if (firstClean || vh !== LS.get("ai_veh_hash")) { await setDoc(doc(db, "config", "vehicles"), { list: VEH, ...t }); nm.vehicles = stamp; LS.set("ai_veh_hash", vh); }
+    if (firstClean || heroDirty) { await setDoc(doc(db, "config", "hero"), { image: HERO_IMG, ...t }); heroDirty = false; LS.set("ai_hero", HERO_IMG); nm.hero = stamp; }
+    if (firstClean || logoDirty) { await setDoc(doc(db, "config", "logo"), { image: LOGO_IMG, ...t }); logoDirty = false; LS.set("ai_logo", LOGO_IMG); nm.logo = stamp; }
+    await setDoc(doc(db, "config", "meta"), nm);
+    LS.set(MKEY, { ...nm, checked: Date.now() });
     autoBackup().catch(() => {});
     LS.set("ai_settings", S); LS.set("ai_vehicles", VEH);
     applySettingsToUI(); fillAdmin(); setDirty(false); showTab("admin"); toast("Pengaturan tersimpan.", "ok");
   } catch (e) {
     toast(e.code === "permission-denied" ? "Akses ditolak. Akun ini tidak memiliki izin admin." : "Gagal menyimpan. Periksa koneksi lalu coba lagi.", "err", 6000);
-  } finally { btn.disabled = false; btn.textContent = "Simpan"; }
+  } finally { btnLoad(btn, false); busy(-1); }
 }
+let vehLimit = 50;
 function renderVeh() {
   const q = $("#vFilter").value.trim().toLowerCase();
   const rows = VEH.map((v, i) => ({ ...v, i })).filter(v => !q || `${v.brand} ${v.type} ${v.model}`.toLowerCase().includes(q))
     .sort((a, b) => a.brand.localeCompare(b.brand) || a.type.localeCompare(b.type) || a.model.localeCompare(b.model));
   $("#vCount").textContent = `${VEH.length} unit`;
-  $("#vBody").innerHTML = rows.map(v => `<tr>
-    <td>${esc(v.brand)}</td><td>${esc(v.type)}</td><td>${esc(v.model)}</td>
-    <td><input type="number" min="0" data-vprice="${v.i}" value="${v.price || ""}" placeholder="—" style="width:140px"></td>
-    <td><button class="btn danger sm" data-vdel="${v.i}">✕</button></td></tr>`).join("") || `<tr><td colspan="5" class="hint">Tidak ditemukan.</td></tr>`;
+  const shown = rows.slice(0, vehLimit);
+  $("#vBody").innerHTML = (shown.map(v => `<tr>
+    <td>${esc(v.brand)}</td><td><span class="vtype">${esc(v.type)}</span></td><td>${esc(v.model)}</td>
+    <td><input type="number" inputmode="numeric" min="0" data-vprice="${v.i}" value="${v.price || ""}" placeholder="Harga acuan (Rp)" aria-label="Harga acuan ${esc(v.model)}"></td>
+    <td><button class="btn danger sm" data-vdel="${v.i}" aria-label="Hapus ${esc(v.model)}">✕</button></td></tr>`).join("")
+    + (rows.length > shown.length ? `<tr class="vmore-row"><td colspan="5" class="vmore"><span class="hint">Menampilkan ${shown.length} dari ${rows.length}. Gunakan pencarian untuk cepat menemukan.</span><br><button class="btn sm" id="btnVehMore" style="margin-top:8px">Tampilkan lebih banyak</button></td></tr>` : ""))
+    || `<tr><td colspan="5" class="hint">Tidak ditemukan.</td></tr>`;
   $("#brandList").innerHTML = brands().map(b => `<option value="${esc(b)}">`).join("");
   $("#typeList").innerHTML = [...new Set(VEH.map(v => v.type))].sort().map(t => `<option value="${esc(t)}">`).join("");
 }
@@ -1155,7 +1234,7 @@ function initPwa() {
   });
   $("#iosClose").addEventListener("click", () => $("#iosModal").hidden = true);
   $("#btnUpd").addEventListener("click", () => { reloading = true; saveDrafts(); $("#updBar").hidden = true; swWaiting && swWaiting.postMessage("SKIP_WAITING"); });
-  window.addEventListener("online", () => { if (fb) { setNet(true, ""); loadRemote().catch(() => {}); } else initFirebase(); });
+  window.addEventListener("online", () => { if (fb) { setNet(true, ""); loadRemote(true).catch(() => {}); syncHistory(true); } else initFirebase(); });
   window.addEventListener("offline", () => setNet(false, "Offline"));
   initExitGuard();
 }
@@ -1266,9 +1345,9 @@ function bind() {
 
   // Admin
   $("#btnLogin").addEventListener("click", async () => {
-    const b = $("#btnLogin"); b.disabled = true;
+    const b = $("#btnLogin"); btnLoad(b, true, "Masuk…");
     try { await fb.A.signInWithEmailAndPassword(fb.auth, $("#lEmail").value.trim(), $("#lPass").value); $("#lPass").value = ""; toast("Berhasil masuk.", "ok"); }
-    catch (e) { toast(authMsg(e), "err"); } finally { b.disabled = false; }
+    catch (e) { toast(authMsg(e), "err"); } finally { btnLoad(b, false); }
   });
   $("#lPass").addEventListener("keydown", e => { if (e.key === "Enter") $("#btnLogin").click(); });
   $("#lnkForgot").addEventListener("click", async e => {
@@ -1290,13 +1369,14 @@ function bind() {
     if (vd) { const v = VEH[+vd.dataset.vdel]; if (confirm(`Hapus ${v.brand} ${v.model}?`)) { VEH.splice(+vd.dataset.vdel, 1); renderVeh(); renderBrands(); } }
   });
   $("#vBody").addEventListener("change", e => { const i = e.target.dataset.vprice; if (i != null) VEH[+i].price = +e.target.value || 0; });
-  $("#vFilter").addEventListener("input", renderVeh);
+  $("#vFilter").addEventListener("input", () => { vehLimit = 50; renderVeh(); });
+  $("#vBody").addEventListener("click", e => { if (e.target.closest("#btnVehMore")) { vehLimit += 100; renderVeh(); } });
   $("#btnAddVeh").addEventListener("click", () => {
     const v = { brand: $("#vBrand").value.trim(), type: $("#vType").value.trim() || "Lainnya", model: $("#vModel").value.trim(), price: +$("#vPrice").value || 0 };
     if (!v.brand || !v.model) return toast("Merek dan model wajib diisi.", "err");
     if (VEH.some(x => x.brand.toLowerCase() === v.brand.toLowerCase() && x.model.toLowerCase() === v.model.toLowerCase())) return toast("Kendaraan sudah ada.", "err");
     VEH.push(v); $("#vModel").value = ""; $("#vPrice").value = ""; renderVeh(); renderBrands();
-    toast("Ditambahkan. Klik Simpan Pengaturan untuk menyimpan.", "ok");
+    toast("Ditambahkan. Klik Simpan untuk menyimpan.", "ok");
   });
   $("#btnResetVeh").addEventListener("click", () => {
     if (!confirm("Ganti daftar kendaraan dengan daftar bawaan? Kendaraan tambahan & harga acuan akan hilang setelah disimpan.")) return;
@@ -1331,6 +1411,7 @@ function updateSaveBar() {
   bar.hidden = $("#adminBox").hidden || !(admDirty || (open && SAVE_PANES.includes(admPane)));
   bar.classList.toggle("dirty", admDirty);
   $("#saveTxt").textContent = admDirty ? "Ada perubahan yang belum disimpan" : "Semua perubahan tersimpan";
+  document.body.classList.toggle("has-savebar", !bar.hidden && !$("#tab-admin").hidden);
 }
 function openAdmPane(sub) {
   readTiers();
@@ -1375,9 +1456,9 @@ async function restoreFromFile(file) {
   if (typeof data.hero === "string") { HERO_IMG = data.hero; heroDirty = true; renderHeroAdmin(); }
   if (typeof data.logo === "string") { LOGO_IMG = data.logo; logoDirty = true; renderLogoAdmin(); renderHdrLogo(); }
   if (nq) {
-    const map = new Map(localHist().map(r => [r.id, r])); data.quotes.forEach(r => { if (r && r.id && !map.has(r.id)) map.set(r.id, r); });
-    setLocalHist([...map.values()].sort((a, b) => (b.savedAt || "").localeCompare(a.savedAt || "")));
-    if (fb && user) await Promise.all(data.quotes.filter(r => r && r.id).map(r => fb.F.setDoc(fb.F.doc(fb.db, "quotes", r.id), r, { merge: true }).catch(() => {})));
+    const have = new Set(localAll().map(r => r.id));
+    data.quotes.filter(r => r && r.id && !have.has(r.id)).forEach(r => { r.updatedAt = r.updatedAt || r.savedAt || new Date().toISOString(); r._dirty = true; putLocal(r); });
+    syncHistory(true);
   }
   if (ni && fb && user) {
     const { doc, setDoc, Timestamp } = fb.F;
@@ -1389,14 +1470,15 @@ async function autoBackup() {
   if (!fb || !user) return;
   const { collection, addDoc, serverTimestamp, query, orderBy, getDocs, deleteDoc } = fb.F;
   await addDoc(collection(fb.db, "backups"), { at: serverTimestamp(), by: user.email, version: APP_VERSION, settings: clone(S), vehicles: VEH });
-  const snap = await getDocs(query(collection(fb.db, "backups"), orderBy("at", "desc")));
+  const { limit } = fb.F;
+  const snap = await getDocs(query(collection(fb.db, "backups"), orderBy("at", "desc"), limit(25)));
   await Promise.all(snap.docs.slice(20).map(d => deleteDoc(d.ref)));
 }
 let BACKUPS = [];
 async function loadBackups() {
   const box = $("#bkList");
   if (!fb || !user) { box.innerHTML = `<p class="hint">Masuk untuk melihat cadangan otomatis.</p>`; return; }
-  box.innerHTML = `<p class="hint">Memuat…</p>`;
+  box.innerHTML = SKEL(3);
   try {
     const { collection, query, orderBy, limit, getDocs } = fb.F;
     const snap = await getDocs(query(collection(fb.db, "backups"), orderBy("at", "desc"), limit(20)));
@@ -1417,6 +1499,15 @@ function applyTheme() {
   $("#btnTheme").innerHTML = dark ? SUN : MOON;
   $("#btnTheme").title = dark ? "Mode terang" : "Mode gelap";
   const m = document.querySelector('meta[name="theme-color"]'); if (m) m.content = dark ? "#141e3a" : "#1f3c88";
+}
+function enhanceFiles() {
+  $$('input[type=file]').forEach(inp => {
+    if (inp.closest(".filepick")) return;
+    const lab = document.createElement("label"); lab.className = "filepick";
+    inp.parentNode.insertBefore(lab, inp); lab.appendChild(inp);
+    lab.insertAdjacentHTML("beforeend", `<span class="btn sm">Pilih file</span><span class="fname">Belum ada file dipilih</span>`);
+    inp.addEventListener("change", () => { const f = inp.files && inp.files[0]; if (f) lab.querySelector(".fname").textContent = f.name; });
+  });
 }
 function bindTheme() {
   applyTheme();
@@ -1472,10 +1563,10 @@ function bindV12() {
     if (e.target.closest("#btnCopyTier") && confirm(`Salin tabel rate Pribadi ke ${funcLabel(adminFunc)}?`)) {
       readTiers();
       Object.keys(AT()).forEach(k => AT()[k] = clone(S.tiersByFunc.PRIBADI[k]));
-      Object.keys(S.flatByFunc[adminFunc]).forEach(k => FUNC_COVERS[adminFunc].forEach(cv => S.flatByFunc[adminFunc][k][cv] = S.flatByFunc.PRIBADI[k][cv])); renderRateFunc(); toast("Tabel disalin. Klik Simpan Pengaturan untuk menyimpan.");
+      Object.keys(S.flatByFunc[adminFunc]).forEach(k => FUNC_COVERS[adminFunc].forEach(cv => S.flatByFunc[adminFunc][k][cv] = S.flatByFunc.PRIBADI[k][cv])); renderRateFunc(); toast("Tabel disalin. Klik Simpan untuk menyimpan.");
     }
     if (e.target.closest("#btnCopyText") && confirm(`Salin teks polis Pribadi ke ${funcLabel(textFunc)}?`)) {
-      S.textsByFunc[textFunc] = clone(S.textsByFunc.PRIBADI); renderTextFunc(); toast("Teks disalin. Klik Simpan Pengaturan untuk menyimpan.");
+      S.textsByFunc[textFunc] = clone(S.textsByFunc.PRIBADI); renderTextFunc(); toast("Teks disalin. Klik Simpan untuk menyimpan.");
     }
     const rp_ = e.target.closest("[data-reply]"); if (rp_) setInboxStatus(rp_.dataset.reply, "dibalas");
     const mk = e.target.closest("[data-mark]"); if (mk) { const x = INBOX.find(i => i.id === mk.dataset.mark); if (x) setInboxStatus(x.id, x.status === "dibalas" ? "baru" : "dibalas"); }
@@ -1488,22 +1579,22 @@ function bindV12() {
   $("#cxList").addEventListener("click", e => {
     const b = e.target.closest("[data-cxdel]"); if (!b) return;
     readCx(); const x = S.customExt[+b.dataset.cxdel];
-    if (confirm(`Hapus perluasan "${x.label || "tanpa nama"}"?`)) { S.customExt.splice(+b.dataset.cxdel, 1); renderCx(); toast("Dihapus. Klik Simpan Pengaturan untuk menerapkan."); }
+    if (confirm(`Hapus perluasan "${x.label || "tanpa nama"}"?`)) { S.customExt.splice(+b.dataset.cxdel, 1); renderCx(); toast("Dihapus. Klik Simpan untuk menerapkan."); }
   });
   $("#inboxFilter").addEventListener("change", renderInbox);
   $("#inboxSearch").addEventListener("input", renderInbox);
   $("#hFile").addEventListener("change", async e => {
     const file = e.target.files[0]; if (!file) return;
-    try { HERO_IMG = await compressImage(file); heroDirty = true; $("#hStyle").value = "photo"; renderHeroAdmin(); toast("Foto siap. Klik Simpan Pengaturan untuk menerapkan."); }
+    try { HERO_IMG = await compressImage(file); heroDirty = true; $("#hStyle").value = "photo"; renderHeroAdmin(); toast("Foto siap. Klik Simpan untuk menerapkan."); }
     catch (er) { toast(er.message, "err"); } finally { e.target.value = ""; }
   });
-  $("#btnHeroDel").addEventListener("click", () => { HERO_IMG = ""; heroDirty = true; $("#hStyle").value = "pattern"; renderHeroAdmin(); toast("Foto dihapus. Klik Simpan Pengaturan untuk menerapkan."); });
+  $("#btnHeroDel").addEventListener("click", () => { HERO_IMG = ""; heroDirty = true; $("#hStyle").value = "pattern"; renderHeroAdmin(); toast("Foto dihapus. Klik Simpan untuk menerapkan."); });
 }
 
 /* ====================== START ====================== */
 renderYearSelect($("#fYear")); renderYearSelect($("#qYear")); setDefaultDates();
 wantedTab = new URLSearchParams(location.search).get("tab") || LS.get("ai_tab") || "quick";
-bindTheme(); bind(); bindV12(); bindAdmin14(); applySettingsToUI(); restoreDrafts(); applyTabs();
+bindTheme(); enhanceFiles(); bind(); bindV12(); bindAdmin14(); applySettingsToUI(); restoreDrafts(); applyTabs(); hideSplash();
 setTimeout(() => (window.requestIdleCallback || setTimeout)(() => loadPdfLibs().catch(() => {})), 2500);
 renderRenew();
 initPwa(); initFirebase();

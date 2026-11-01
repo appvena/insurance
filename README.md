@@ -1,6 +1,6 @@
-# Vehicle Protection — v1.5.3
+# Vehicle Protection — v1.6
 
-Copyright © SRISP 2026 · v1.5.3
+Copyright © SRISP 2026 · v1.6
 
 ## Isi zip
 ```
@@ -17,6 +17,41 @@ panduan/              ← JANGAN di-upload ke GitHub (supaya tidak bisa dibuka p
   README.md
   firestore.rules     tempel di Firebase Console → Firestore → Rules
 ```
+
+## Yang baru di v1.6
+### Animasi loading
+- Layar pembuka (ikon + garis berjalan) saat aplikasi dibuka.
+- Garis progres tipis di paling atas saat aplikasi sinkron dengan cloud.
+- Tombol berputar saat proses: Unduh PDF, Kirim WA, Simpan, Masuk, Kirim Pertanyaan.
+- Kerangka abu-abu berkilau saat Riwayat, Inbox, dan Cadangan sedang dimuat.
+- Otomatis dimatikan jika HP diatur "kurangi animasi".
+
+### Hybrid hemat Firebase (paket gratis)
+- **Data utama di perangkat, cloud sebagai sinkron.** Aplikasi langsung tampil dari data di perangkat, lalu sinkron di belakang.
+- **Pengaturan**: dokumen kecil `config/meta` berisi nomor versi. Pengaturan, daftar kendaraan, foto header, dan logo hanya diunduh jika versinya berubah. Pengunjung umum memeriksa paling sering 5 menit sekali → membuka ulang aplikasi = 0 baca.
+- **Riwayat**: hanya mengambil data yang berubah sejak sinkron terakhir. Data yang dibuat saat offline ditandai "menunggu sinkron" dan otomatis terkirim saat online.
+- **Hapus** memakai tanda hapus yang ikut tersinkron, sehingga data yang dihapus di PC juga hilang di HP.
+- Cache Firestore disimpan di perangkat (IndexedDB) bila browser mendukung.
+- Riwayat di perangkat hingga 1.500 data; polis Deal yang masih berlaku selalu disimpan untuk pengingat perpanjangan.
+
+### Perbaikan bug
+- Membuka aplikasi di perangkat lain tidak lagi menimpa status terbaru (misalnya Deal kembali menjadi Baru), dan tidak lagi mengunggah ulang semua riwayat setiap dibuka.
+- Email admin tidak lagi tersimpan di data yang bisa dibaca publik. Data lama dibersihkan otomatis saat admin pertama kali klik **Simpan** di v1.6.
+- Pengingat perpanjangan tidak lagi terbatas 300 penawaran terakhir.
+- Status di Riwayat tidak tampil dua kali; pilihan status kini berwarna. Label "Kedaluwarsa" tetap muncul jika berlaku.
+- Pilihan kategori kendaraan memakai nama pendek sehingga tidak terpotong di HP.
+- Tombol pilih file berbahasa Indonesia dan rapi di mode gelap.
+- Notifikasi tidak lagi menutupi tombol Simpan di Admin.
+- PA Penumpang untuk roda 2 dihitung maksimal 1 penumpang.
+
+### Setelah upload v1.6
+- Masuk Admin lalu klik **Simpan** satu kali (tanpa perlu mengubah apa pun) supaya dokumen versi dibuat dan email admin dihapus dari data lama.
+- Firestore Rules tidak perlu diubah.
+
+## Yang baru di v1.5.4
+- Perbaikan tampilan Admin di HP: halaman tidak lagi melebar ke samping (header biru terpotong, tombol Simpan menyempit, baris tabel menumpuk).
+- Daftar kendaraan di HP tampil sebagai kartu (merek, jenis, model, harga acuan, hapus). Di PC tetap tabel.
+- Daftar menampilkan 50 kendaraan dulu, dengan tombol "Tampilkan lebih banyak"; pencarian tetap mencari di semua kendaraan.
 
 ## Yang baru di v1.5.3
 - Tarif bawaan semua kategori = **batas bawah OJK Wilayah 1**: Truk & Pickup 2,42% / TLO 0,88%; Bus 1,04% / 0,23%; Roda 2 3,18% / 1,76%. Mobil penumpang tetap 3,82% · 2,67% · 2,18% · 1,20% · 1,05% (TLO 0,47% · 0,63% · 0,41% · 0,25% · 0,20%).
@@ -105,7 +140,7 @@ Firestore Database → Create database (lokasi `asia-southeast2 (Jakarta)`, mode
 Upload isi `upload-ke-github/` ke repository → Settings → Pages → Deploy from a branch → main / root → Save.
 
 ## Memperbarui di kemudian hari
-Setiap ada file yang diubah, naikkan `VERSION` di `sw.js` (mis. `ai-v1.5.3` → `ai-v1.5.4`) supaya aplikasi yang sudah terpasang mendapat versi baru.
+Setiap ada file yang diubah, naikkan `VERSION` di `sw.js` (mis. `ai-v1.6.0` → `ai-v1.6.1`) supaya aplikasi yang sudah terpasang mendapat versi baru.
 
 ## Catatan
 - Tulisan teknis sudah tidak tampil di halaman. Kode sumber (View Source) tetap bisa dibaca siapa pun, seperti semua situs web; keamanan data dijaga oleh Firestore Rules.
