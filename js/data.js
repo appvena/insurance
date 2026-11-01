@@ -226,7 +226,7 @@ export const catOfType = t => ({ pickup: "truck", truk: "truck", truck: "truck",
     S.flatByFunc[f.key] = {};
     ["truck", "bus", "moto"].forEach(k => {
       S.flatByFunc[f.key][k] = {};
-      FUNC_COVERS[f.key].forEach(cv => S.flatByFunc[f.key][k][cv] = OJK_W1[cv][k][1]);   /* bawaan: batas atas */
+      FUNC_COVERS[f.key].forEach(cv => S.flatByFunc[f.key][k][cv] = OJK_W1[cv][k][0]);   /* bawaan: batas bawah */
     });
   });
   S.vehMerged = [];

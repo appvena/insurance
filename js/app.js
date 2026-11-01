@@ -1,4 +1,4 @@
-/* Vehicle Protection — v1.5.2 · Copyright © SRISP 2026 */
+/* Vehicle Protection — v1.5.3 · Copyright © SRISP 2026 */
 import { firebaseConfig, FB_VER, APP_VERSION, COPYRIGHT } from "./config.js";
 import { EXT_DEFS, COVER_LABEL, DEFAULT_SETTINGS, DEFAULT_VEHICLES, FUNCS, FUNC_COVERS, CATS, OJK_W1, catOfType, NEW_VEHICLES_152 } from "./data.js";
 
@@ -37,7 +37,7 @@ function normalizeSettings(raw) {
   if (raw && raw.texts && raw.texts.deductible != null && !raw.textsByFunc)
     FUNCS.forEach(f => ["deductible", "clauses", "subjectivity"].forEach(k => { if (raw.texts[k] != null) s.textsByFunc[f.key][k] = raw.texts[k]; }));
   FUNCS.forEach(f => { const t = {}; FUNC_COVERS[f.key].forEach(cv => t[cv] = s.tiersByFunc[f.key][cv] || clone(s.tiersByFunc.PRIBADI.comprehensive)); s.tiersByFunc[f.key] = t; });
-  FUNCS.forEach(f => { const fl = {}; ["truck", "bus", "moto"].forEach(k => { fl[k] = {}; FUNC_COVERS[f.key].forEach(cv => { const v = ((s.flatByFunc[f.key] || {})[k] || {})[cv]; fl[k][cv] = v != null ? +v : OJK_W1[cv][k][1]; }); }); s.flatByFunc[f.key] = fl; });
+  FUNCS.forEach(f => { const fl = {}; ["truck", "bus", "moto"].forEach(k => { fl[k] = {}; FUNC_COVERS[f.key].forEach(cv => { const v = ((s.flatByFunc[f.key] || {})[k] || {})[cv]; fl[k][cv] = v != null ? +v : OJK_W1[cv][k][0]; }); }); s.flatByFunc[f.key] = fl; });
   s.texts = { disclaimer: s.texts.disclaimer };
   delete s.tiers; delete s.updatedAt; delete s.updatedBy;
   return s;

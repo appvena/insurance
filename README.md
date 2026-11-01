@@ -1,6 +1,6 @@
-# Vehicle Protection — v1.5.2
+# Vehicle Protection — v1.5.3
 
-Copyright © SRISP 2026 · v1.5.2
+Copyright © SRISP 2026 · v1.5.3
 
 ## Isi zip
 ```
@@ -18,10 +18,12 @@ panduan/              ← JANGAN di-upload ke GitHub (supaya tidak bisa dibuka p
   firestore.rules     tempel di Firebase Console → Firestore → Rules
 ```
 
+## Yang baru di v1.5.3
+- Tarif bawaan semua kategori = **batas bawah OJK Wilayah 1**: Truk & Pickup 2,42% / TLO 0,88%; Bus 1,04% / 0,23%; Roda 2 3,18% / 1,76%. Mobil penumpang tetap 3,82% · 2,67% · 2,18% · 1,20% · 1,05% (TLO 0,47% · 0,63% · 0,41% · 0,25% · 0,20%).
+
 ## Yang baru di v1.5.2
 - **Kategori tarif OJK (Wilayah 1)**: Mobil penumpang (kategori 1–5, berjenjang), **Truk & Pickup** (kategori 6), **Bus** (kategori 7), **Roda 2** (kategori 8). Truk, bus, dan roda 2 memakai tarif tetap untuk semua harga.
 - Pilihan **Kategori Kendaraan** di Hitung Cepat dan **Kategori Tarif** di Penawaran. Di Penawaran, kategori terisi otomatis dari jenis kendaraan (Pickup/Truk → Truk & Pickup, Bus → Bus, Motor → Roda 2) dan tetap bisa diubah. Tercetak di PDF.
-- Bawaan tarif truk, bus, roda 2 = **batas atas OJK Wilayah 1**. Rate mobil penumpang yang sudah ada tidak diubah.
 - Admin → Rate kasko: tabel **Rate Truk, Bus & Roda 2** per fungsi, plus tombol **Isi tarif OJK Wilayah 1: Batas bawah / Batas atas** untuk mengisi semua tabel fungsi tersebut sekali klik.
 - Daftar kendaraan bertambah: truk (Fuso, Hino, Isuzu, Toyota Dyna, UD), bus, dan motor (Honda, Yamaha, Suzuki, Kawasaki, Vespa, TVS). Ditambahkan otomatis satu kali ke daftar yang sudah tersimpan.
 - Komersial tetap hanya Comprehensive untuk semua kategori.
@@ -103,7 +105,7 @@ Firestore Database → Create database (lokasi `asia-southeast2 (Jakarta)`, mode
 Upload isi `upload-ke-github/` ke repository → Settings → Pages → Deploy from a branch → main / root → Save.
 
 ## Memperbarui di kemudian hari
-Setiap ada file yang diubah, naikkan `VERSION` di `sw.js` (mis. `ai-v1.5.2` → `ai-v1.5.3`) supaya aplikasi yang sudah terpasang mendapat versi baru.
+Setiap ada file yang diubah, naikkan `VERSION` di `sw.js` (mis. `ai-v1.5.3` → `ai-v1.5.4`) supaya aplikasi yang sudah terpasang mendapat versi baru.
 
 ## Catatan
 - Tulisan teknis sudah tidak tampil di halaman. Kode sumber (View Source) tetap bisa dibaca siapa pun, seperti semua situs web; keamanan data dijaga oleh Firestore Rules.
